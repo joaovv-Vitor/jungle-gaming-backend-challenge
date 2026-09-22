@@ -174,6 +174,7 @@ go test -race ./...
 go vet ./...
 go test -tags=integration ./internal/adapters/postgres
 go test -tags=integration ./internal/adapters/auth
+go test -tags=integration ./internal/adapters/sqs
 ```
 
-Os testes com tag `integration` exigem PostgreSQL e Keycloak ativos pelo Compose.
+Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final.

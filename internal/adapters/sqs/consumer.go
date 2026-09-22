@@ -110,8 +110,12 @@ func (c *Consumer) start(ctx context.Context) error {
 func (c *Consumer) run(pollCtx, workCtx context.Context) {
 	defer close(c.loopDone)
 	for {
+		batch, ok := c.availableBatch(pollCtx)
+		if !ok {
+			return
+		}
 		messages, err := c.broker.Receive(
-			pollCtx, c.currentQueueURL(), c.cfg.SQSReceiveBatch,
+			pollCtx, c.currentQueueURL(), batch,
 			int32(c.cfg.SQSLongPoll/time.Second), int32(c.cfg.SQSVisibility/time.Second),
 		)
 		if err != nil {
@@ -143,6 +147,24 @@ func (c *Consumer) run(pollCtx, workCtx context.Context) {
 			}(message)
 		}
 	}
+}
+
+func (c *Consumer) availableBatch(ctx context.Context) (int32, bool) {
+	available := cap(c.semaphore) - len(c.semaphore)
+	if available == 0 {
+		select {
+		case c.semaphore <- struct{}{}:
+			<-c.semaphore
+		case <-ctx.Done():
+			return 0, false
+		}
+		available = cap(c.semaphore) - len(c.semaphore)
+	}
+	batch := int32(available)
+	if batch > c.cfg.SQSReceiveBatch {
+		batch = c.cfg.SQSReceiveBatch
+	}
+	return batch, true
 }
 
 func (c *Consumer) handle(parent context.Context, received Message) {

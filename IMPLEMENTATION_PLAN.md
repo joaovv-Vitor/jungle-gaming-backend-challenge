@@ -34,10 +34,11 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 4 concluídas: token ausente, inválido e expirado, provider impedido de operar carteiras, abertura positiva atômica, conflito persistente, abertura zero sem registros financeiros e consulta autenticada do ledger.
 - Fase 5 concluída: processamento financeiro dos cinco tipos externos, hash canônico, idempotência persistente, locks por carteira e endpoints autenticados de envio e consulta.
 - Verificações da Fase 5 concluídas: vetor SHA-256 estável, regras e referências dos cinco tipos, replay histórico e conflitos, isolamento entre providers, 50 entregas concorrentes distribuídas por três serviços/pools com efeito único, disputa de duas apostas de `80.00` sobre `100.00` por conexões independentes e fluxo HTTP real com Keycloak e PostgreSQL.
-- Fase 6 em andamento: LocalStack, filas FIFO/DLQ, consumidor com long polling e inbox transacional já estão integrados ao mesmo caso de uso financeiro do HTTP.
-- Verificações parciais da Fase 6: hash canônico do envelope, inbox e efeito financeiro no mesmo commit, reentrega com efeito único, conflito de hash, cruzamento HTTP/SQS, rollback da inbox, readiness do SQS, consumo/deleção reais e redrive após cinco recebimentos no LocalStack. A falha entre commit e delete também possui teste automatizado, que comprova o replay seguro na entrega seguinte.
+- Fase 6 concluída: LocalStack, filas FIFO/DLQ, consumidor com long polling, backpressure por capacidade disponível e inbox transacional estão integrados ao mesmo caso de uso financeiro do HTTP.
+- Verificações da Fase 6 concluídas: hash canônico do envelope, inbox e efeito financeiro no mesmo commit, reentrega com efeito único, conflito de hash, cruzamento HTTP/SQS, rollback da inbox, readiness do SQS, consumo/deleção reais e redrive automatizado no LocalStack. A falha entre commit e delete também possui teste automatizado, que comprova o replay seguro na entrega seguinte.
 - Métricas iniciais da Fase 6 implementadas: recebimentos distinguem primeira entrega e reentrega pelo `ApproximateReceiveCount`; tentativas registram resultado e duração com labels de cardinalidade limitada, expostas em `/metrics` por um registry isolado.
-- Próximos itens da Fase 6: automatizar a prova de redrive no LocalStack e executar múltiplos consumidores reais.
+- Concorrência da Fase 6 validada com três consumidores SQS e pools PostgreSQL independentes, barreira explícita de início, grupos FIFO distintos e reentregas posteriores; cada efeito financeiro permaneceu único.
+- Próxima etapa: Fase 7, com processamento durável de referências pendentes.
 
 ---
 

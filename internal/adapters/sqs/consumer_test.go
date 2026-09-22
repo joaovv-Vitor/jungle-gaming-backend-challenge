@@ -87,6 +87,25 @@ func TestConsumerLeavesInvalidMessageForRedrive(t *testing.T) {
 	}
 }
 
+func TestConsumerLimitsReceiveBatchToAvailableWorkers(t *testing.T) {
+	consumer := newConsumer(&consumerTestBroker{}, &consumerTestIngester{}, config.Config{
+		SQSReceiveBatch: 10, SQSConcurrency: 2,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)), metrics.New())
+	consumer.semaphore <- struct{}{}
+
+	batch, ok := consumer.availableBatch(context.Background())
+	if !ok || batch != 1 {
+		t.Fatalf("available batch = %d/%v, want 1/true", batch, ok)
+	}
+
+	consumer.semaphore <- struct{}{}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if batch, ok := consumer.availableBatch(cancelled); ok || batch != 0 {
+		t.Fatalf("cancelled available batch = %d/%v, want 0/false", batch, ok)
+	}
+}
+
 func consumerTestTransaction(t *testing.T) *domainwagering.Transaction {
 	t.Helper()
 	amount, err := money.Parse("10.00", "BRL")
