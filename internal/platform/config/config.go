@@ -26,6 +26,7 @@ const (
 	defaultSQSEndpoint       = "http://localhost:4566"
 	defaultSQSRegion         = "us-east-1"
 	defaultSQSInputQueue     = "wager-transactions.fifo"
+	defaultSQSOutputQueue    = "wager-events.fifo"
 	defaultSQSConsumerName   = "wager-transactions"
 	defaultSQSLongPoll       = 20 * time.Second
 	defaultSQSVisibility     = 60 * time.Second
@@ -35,6 +36,9 @@ const (
 	defaultReferencePoll     = 500 * time.Millisecond
 	defaultReferenceLease    = 30 * time.Second
 	defaultReferenceProcess  = 10 * time.Second
+	defaultOutboxPoll        = 500 * time.Millisecond
+	defaultOutboxLease       = 30 * time.Second
+	defaultOutboxProcess     = 10 * time.Second
 )
 
 type Config struct {
@@ -58,6 +62,7 @@ type Config struct {
 	SQSAccessKeyID      string
 	SQSSecretAccessKey  string
 	SQSInputQueue       string
+	SQSOutputQueue      string
 	SQSConsumerName     string
 	SQSLongPoll         time.Duration
 	SQSVisibility       time.Duration
@@ -70,6 +75,10 @@ type Config struct {
 	ReferenceLease      time.Duration
 	ReferenceProcess    time.Duration
 	ReferenceWorkers    int32
+	OutboxPoll          time.Duration
+	OutboxLease         time.Duration
+	OutboxProcess       time.Duration
+	OutboxWorkers       int32
 }
 
 func Load() (Config, error) {
@@ -94,6 +103,7 @@ func Load() (Config, error) {
 		SQSAccessKeyID:      envOrDefault("APP_SQS_ACCESS_KEY_ID", "test"),
 		SQSSecretAccessKey:  envOrDefault("APP_SQS_SECRET_ACCESS_KEY", "test"),
 		SQSInputQueue:       envOrDefault("APP_SQS_INPUT_QUEUE", defaultSQSInputQueue),
+		SQSOutputQueue:      envOrDefault("APP_SQS_OUTPUT_QUEUE", defaultSQSOutputQueue),
 		SQSConsumerName:     envOrDefault("APP_SQS_CONSUMER_NAME", defaultSQSConsumerName),
 		SQSLongPoll:         defaultSQSLongPoll,
 		SQSVisibility:       defaultSQSVisibility,
@@ -106,6 +116,10 @@ func Load() (Config, error) {
 		ReferenceLease:      defaultReferenceLease,
 		ReferenceProcess:    defaultReferenceProcess,
 		ReferenceWorkers:    2,
+		OutboxPoll:          defaultOutboxPoll,
+		OutboxLease:         defaultOutboxLease,
+		OutboxProcess:       defaultOutboxProcess,
+		OutboxWorkers:       2,
 	}
 
 	var err error
@@ -169,6 +183,18 @@ func Load() (Config, error) {
 	if cfg.ReferenceWorkers, err = int32Value("APP_REFERENCE_WORKERS", cfg.ReferenceWorkers); err != nil {
 		return Config{}, err
 	}
+	if cfg.OutboxPoll, err = duration("APP_OUTBOX_POLL_INTERVAL", cfg.OutboxPoll); err != nil {
+		return Config{}, err
+	}
+	if cfg.OutboxLease, err = duration("APP_OUTBOX_LEASE", cfg.OutboxLease); err != nil {
+		return Config{}, err
+	}
+	if cfg.OutboxProcess, err = duration("APP_OUTBOX_PROCESSING_TIMEOUT", cfg.OutboxProcess); err != nil {
+		return Config{}, err
+	}
+	if cfg.OutboxWorkers, err = int32Value("APP_OUTBOX_WORKERS", cfg.OutboxWorkers); err != nil {
+		return Config{}, err
+	}
 
 	return cfg, cfg.validate()
 }
@@ -215,6 +241,10 @@ func (c Config) validate() error {
 	if c.ReferenceWorkers < 1 || c.ReferenceWorkers > c.DatabaseMaxConns ||
 		c.ReferenceLease <= c.ReferenceProcess || c.ReferencePoll <= 0 {
 		return errors.New("reference workers must fit the database pool and lease must exceed processing timeout")
+	}
+	if c.SQSOutputQueue == "" || c.OutboxWorkers < 1 || c.OutboxWorkers > c.DatabaseMaxConns ||
+		c.OutboxLease <= c.OutboxProcess || c.OutboxPoll <= 0 {
+		return errors.New("outbox queue, workers and timing must be valid")
 	}
 	return nil
 }

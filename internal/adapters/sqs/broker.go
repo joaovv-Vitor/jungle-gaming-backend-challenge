@@ -20,6 +20,7 @@ type sqsClient interface {
 	ReceiveMessage(context.Context, *awssqs.ReceiveMessageInput, ...func(*awssqs.Options)) (*awssqs.ReceiveMessageOutput, error)
 	DeleteMessage(context.Context, *awssqs.DeleteMessageInput, ...func(*awssqs.Options)) (*awssqs.DeleteMessageOutput, error)
 	ChangeMessageVisibility(context.Context, *awssqs.ChangeMessageVisibilityInput, ...func(*awssqs.Options)) (*awssqs.ChangeMessageVisibilityOutput, error)
+	SendMessage(context.Context, *awssqs.SendMessageInput, ...func(*awssqs.Options)) (*awssqs.SendMessageOutput, error)
 }
 
 type Broker struct {
@@ -115,6 +116,23 @@ func (b *Broker) Release(ctx context.Context, queueURL, receiptHandle string) er
 	})
 	if err != nil {
 		return fmt.Errorf("release SQS message visibility: %w", err)
+	}
+	return nil
+}
+
+func (b *Broker) Send(ctx context.Context, queueURL, eventID, groupID string, payload []byte) error {
+	if queueURL == "" || eventID == "" || groupID == "" || len(payload) == 0 {
+		return fmt.Errorf("send SQS event: incomplete event")
+	}
+	result, err := b.client.SendMessage(ctx, &awssqs.SendMessageInput{
+		QueueUrl: aws.String(queueURL), MessageBody: aws.String(string(payload)),
+		MessageGroupId: aws.String(groupID), MessageDeduplicationId: aws.String(eventID),
+	})
+	if err != nil {
+		return fmt.Errorf("send SQS event: %w", err)
+	}
+	if result == nil || result.MessageId == nil || *result.MessageId == "" {
+		return fmt.Errorf("send SQS event: empty message ID")
 	}
 	return nil
 }

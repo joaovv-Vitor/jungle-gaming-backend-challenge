@@ -40,7 +40,9 @@ Atualizado em 22 de setembro de 2026:
 - Concorrência da Fase 6 validada com três consumidores SQS e pools PostgreSQL independentes, barreira explícita de início, grupos FIFO distintos e reentregas posteriores; cada efeito financeiro permaneceu único.
 - Fase 7 concluída: worker concorrente de referências pendentes com agenda e lease no PostgreSQL, backoff com jitter, TTL, reavaliação sob lock da carteira, resultado financeiro e eventos atômicos.
 - Verificações da Fase 7 concluídas em PostgreSQL real: resolução após chegada tardia, referência ainda pendente, referência rejeitada/incompatível, expiração, lease assumido por outro pool e token obsoleto incapaz de alterar a agenda. O bootstrap completo iniciou dois workers e respondeu ao readiness.
-- Próxima etapa: Fase 8, publicação e recuperação da outbox transacional.
+- Fase 8 concluída: publisher concorrente da outbox, reivindicação por `FOR UPDATE SKIP LOCKED`, lease e token persistidos, retry com backoff e jitter, envio FIFO com `eventId` estável e confirmação condicional no PostgreSQL.
+- Verificações da Fase 8 concluídas: dois publishers/pools disputando eventos, recuperação de lease abandonado, rejeição de token antigo, falha antes do envio, falha após envio e antes da confirmação, reenvio com o mesmo `eventId` e publicação real na fila FIFO do LocalStack.
+- Próxima etapa: Fase 9, reconciliação e observabilidade final.
 
 ---
 

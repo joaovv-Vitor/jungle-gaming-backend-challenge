@@ -86,6 +86,15 @@ func TestLoadRejectsReferenceLeaseShorterThanProcessing(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsOutboxLeaseShorterThanProcessing(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("APP_OUTBOX_LEASE", "5s")
+	t.Setenv("APP_OUTBOX_PROCESSING_TIMEOUT", "10s")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted an outbox lease shorter than processing timeout")
+	}
+}
+
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_HTTP_ADDR", defaultHTTPAddress)
@@ -108,6 +117,7 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("APP_SQS_ACCESS_KEY_ID", "test")
 	t.Setenv("APP_SQS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("APP_SQS_INPUT_QUEUE", defaultSQSInputQueue)
+	t.Setenv("APP_SQS_OUTPUT_QUEUE", defaultSQSOutputQueue)
 	t.Setenv("APP_SQS_CONSUMER_NAME", defaultSQSConsumerName)
 	t.Setenv("APP_SQS_LONG_POLL", defaultSQSLongPoll.String())
 	t.Setenv("APP_SQS_VISIBILITY_TIMEOUT", defaultSQSVisibility.String())
@@ -120,4 +130,8 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("APP_REFERENCE_LEASE", defaultReferenceLease.String())
 	t.Setenv("APP_REFERENCE_PROCESSING_TIMEOUT", defaultReferenceProcess.String())
 	t.Setenv("APP_REFERENCE_WORKERS", "2")
+	t.Setenv("APP_OUTBOX_POLL_INTERVAL", defaultOutboxPoll.String())
+	t.Setenv("APP_OUTBOX_LEASE", defaultOutboxLease.String())
+	t.Setenv("APP_OUTBOX_PROCESSING_TIMEOUT", defaultOutboxProcess.String())
+	t.Setenv("APP_OUTBOX_WORKERS", "2")
 }

@@ -55,6 +55,24 @@ func TestBrokerReceiveDefaultsInvalidReceiveCountToFirstDelivery(t *testing.T) {
 type brokerTestClient struct {
 	receiveInput  *awssqs.ReceiveMessageInput
 	receiveOutput *awssqs.ReceiveMessageOutput
+	sendInput     *awssqs.SendMessageInput
+}
+
+func TestBrokerSendUsesStableEventIdentity(t *testing.T) {
+	client := &brokerTestClient{}
+	if err := (&Broker{client: client}).Send(context.Background(), "queue", "event-1", "wallet-1", []byte(`{"eventId":"event-1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if aws.ToString(client.sendInput.MessageDeduplicationId) != "event-1" ||
+		aws.ToString(client.sendInput.MessageGroupId) != "wallet-1" ||
+		aws.ToString(client.sendInput.MessageBody) != `{"eventId":"event-1"}` {
+		t.Fatalf("send input = %+v", client.sendInput)
+	}
+}
+
+func (c *brokerTestClient) SendMessage(_ context.Context, input *awssqs.SendMessageInput, _ ...func(*awssqs.Options)) (*awssqs.SendMessageOutput, error) {
+	c.sendInput = input
+	return &awssqs.SendMessageOutput{MessageId: aws.String("broker-message-1")}, nil
 }
 
 func (c *brokerTestClient) GetQueueUrl(context.Context, *awssqs.GetQueueUrlInput, ...func(*awssqs.Options)) (*awssqs.GetQueueUrlOutput, error) {

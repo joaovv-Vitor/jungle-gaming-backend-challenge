@@ -4,7 +4,7 @@ Implementação em andamento do desafio descrito em `teste tecnoco.md`. A arquit
 
 ## Estado atual
 
-O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e processamento idempotente por HTTP e SQS de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. No SQS, inbox, carteira, transação, ledger e outbox são confirmados atomicamente antes da remoção da mensagem. Um worker durável retoma referências pendentes; a publicação da outbox permanece em implementação.
+O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e processamento idempotente por HTTP e SQS de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. No SQS, inbox, carteira, transação, ledger e outbox são confirmados atomicamente antes da remoção da mensagem. Workers duráveis retomam referências pendentes e publicam a outbox na fila de eventos FIFO.
 
 ## Requisitos locais
 
@@ -110,6 +110,10 @@ docker compose exec -T localstack awslocal sqs send-message \
 ```
 
 O `messageId` do envelope identifica a inbox. Reentregas com o mesmo conteúdo são confirmadas sem reaplicar o efeito; o mesmo `messageId` com conteúdo diferente permanece na fila para redrive. Um `messageId` novo ainda é deduplicado pelas identidades financeiras compartilhadas com o HTTP.
+
+Eventos financeiros são gravados na outbox no mesmo commit da operação e publicados depois em `wager-events.fifo`. O envio é *at-least-once*: se houver queda após o envio e antes da confirmação no banco, o mesmo `eventId` pode ser publicado novamente. Consumidores da fila de eventos devem deduplicar por `eventId`; a deduplicação temporária da FIFO não substitui essa regra. `MessageGroupId` usa a carteira, e `MessageDeduplicationId` usa o `eventId`. Publicações de workers distintos podem chegar fora da ordem dos commits; `walletVersion` permite identificar lacunas nos eventos de saldo.
+
+O publisher usa `APP_SQS_OUTPUT_QUEUE` (padrão `wager-events.fifo`), `APP_OUTBOX_WORKERS` (`2`), `APP_OUTBOX_POLL_INTERVAL` (`500ms`), `APP_OUTBOX_PROCESSING_TIMEOUT` (`10s`) e `APP_OUTBOX_LEASE` (`30s`). Falhas mantêm o evento na outbox, com `attempts`, `next_attempt_at` e `last_error` consultáveis no PostgreSQL; não há descarte após um número fixo de tentativas. Configure o lease acima do timeout de processamento.
 
 As métricas `wager_sqs_consumer_messages_received_total`, `wager_sqs_consumer_messages_processed_total` e `wager_sqs_consumer_message_processing_duration_seconds` permitem acompanhar primeiras entregas, reentregas, resultados e duração. Seus labels são limitados a classificações controladas e nunca carregam IDs financeiros ou de mensagens.
 
