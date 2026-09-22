@@ -1,0 +1,7 @@
+.git
+.env
+*.out
+coverage.*
+README.md
+IMPLEMENTATION_PLAN.md
+teste tecnoco.md

@@ -1,0 +1,92 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
+
+const (
+	defaultHTTPAddress       = ":8080"
+	defaultReadHeaderTimeout = 5 * time.Second
+	defaultReadTimeout       = 10 * time.Second
+	defaultWriteTimeout      = 15 * time.Second
+	defaultIdleTimeout       = 60 * time.Second
+	defaultShutdownTimeout   = 15 * time.Second
+)
+
+type Config struct {
+	HTTPAddress       string
+	LogLevel          string
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+}
+
+func Load() (Config, error) {
+	cfg := Config{
+		HTTPAddress:       envOrDefault("APP_HTTP_ADDR", defaultHTTPAddress),
+		LogLevel:          strings.ToLower(envOrDefault("APP_LOG_LEVEL", "info")),
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
+		WriteTimeout:      defaultWriteTimeout,
+		IdleTimeout:       defaultIdleTimeout,
+		ShutdownTimeout:   defaultShutdownTimeout,
+	}
+
+	var err error
+	if cfg.ReadHeaderTimeout, err = duration("APP_HTTP_READ_HEADER_TIMEOUT", cfg.ReadHeaderTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReadTimeout, err = duration("APP_HTTP_READ_TIMEOUT", cfg.ReadTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.WriteTimeout, err = duration("APP_HTTP_WRITE_TIMEOUT", cfg.WriteTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.IdleTimeout, err = duration("APP_HTTP_IDLE_TIMEOUT", cfg.IdleTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.ShutdownTimeout, err = duration("APP_SHUTDOWN_TIMEOUT", cfg.ShutdownTimeout); err != nil {
+		return Config{}, err
+	}
+
+	return cfg, cfg.validate()
+}
+
+func (c Config) validate() error {
+	if strings.TrimSpace(c.HTTPAddress) == "" {
+		return errors.New("APP_HTTP_ADDR must not be empty")
+	}
+	if c.LogLevel != "debug" && c.LogLevel != "info" {
+		return fmt.Errorf("APP_LOG_LEVEL must be one of debug or info: %q", c.LogLevel)
+	}
+	return nil
+}
+
+func envOrDefault(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
+}
+
+func duration(key string, fallback time.Duration) (time.Duration, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback, nil
+	}
+
+	value, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", key, err)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
+	}
+	return value, nil
+}
