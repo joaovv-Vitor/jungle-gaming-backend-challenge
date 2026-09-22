@@ -47,8 +47,9 @@ func (s *WagerStore) WithinTransaction(ctx context.Context, work func(applicatio
 }
 
 type wagerSession struct {
-	tx    pgx.Tx
-	store *WagerStore
+	tx           pgx.Tx
+	store        *WagerStore
+	pendingToken string
 }
 
 func (s wagerSession) FindByID(ctx context.Context, id string) (*domain.Transaction, error) {
@@ -93,6 +94,10 @@ func (s wagerSession) InsertTransaction(ctx context.Context, transaction *domain
 		persistenceSchedule = &ReferenceSchedule{NextAttemptAt: schedule.NextAttemptAt, ExpiresAt: schedule.ExpiresAt}
 	}
 	return s.store.wagers.Insert(ctx, s.tx, transaction, persistenceSchedule)
+}
+
+func (s wagerSession) UpdateTransaction(ctx context.Context, transaction *domain.Transaction) error {
+	return s.store.wagers.CompletePending(ctx, s.tx, transaction, s.pendingToken)
 }
 
 func (s wagerSession) UpdateWallet(ctx context.Context, account *wallet.Wallet) error {

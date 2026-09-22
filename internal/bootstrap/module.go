@@ -10,8 +10,10 @@ import (
 	authadapter "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/auth"
 	httpadapter "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/http"
 	postgresadapter "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/postgres"
+	referenceadapter "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/reference"
 	sqsadapter "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/sqs"
 	applicationingestion "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/ingestion"
+	applicationreference "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reference"
 	applicationwagering "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
 	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
@@ -29,8 +31,9 @@ var Module = fx.Options(
 	fx.Module("health", fx.Provide(health.New)),
 	authadapter.Module,
 	postgresadapter.Module,
-	fx.Module("application", fx.Provide(applicationwallet.NewService, applicationwagering.NewService, applicationingestion.NewService)),
+	fx.Module("application", fx.Provide(applicationwallet.NewService, applicationwagering.NewService, applicationingestion.NewService, applicationreference.NewService)),
 	sqsadapter.Module,
+	referenceadapter.Module,
 	httpadapter.Module,
 )
 

@@ -81,6 +81,31 @@ func (r *WagerRepository) HasProcessedReversal(ctx context.Context, db DBTX, ref
 	return exists, nil
 }
 
+func (r *WagerRepository) CompletePending(ctx context.Context, db DBTX, entity *wagering.Transaction, token string) error {
+	if token == "" || entity == nil || !entity.Status().Terminal() {
+		return ErrInvalidSchedule
+	}
+	result, hasResult := entity.ResultBalance()
+	var resultMinor any
+	if hasResult {
+		resultMinor = result.MinorUnits()
+	}
+	tag, err := db.Exec(ctx, `
+		UPDATE wager_transactions SET
+			status=$1, reference_transaction_id=$2, failure_code=$3, result_balance_minor=$4,
+			next_attempt_at=NULL, lease_token=NULL, locked_until=NULL, updated_at=$5
+		WHERE id=$6 AND status='PENDING_REFERENCE' AND lease_token=$7`,
+		entity.Status(), nullString(entity.ReferenceTransactionID()), nullString(string(entity.FailureCode())),
+		resultMinor, entity.UpdatedAt(), entity.ID(), token)
+	if err != nil {
+		return fmt.Errorf("complete pending wager: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrConcurrentWrite
+	}
+	return nil
+}
+
 const wagerSelect = `SELECT
     id::text, origin, provider_id, external_transaction_id, idempotency_key, payload_hash,
     wallet_id::text, player_id::text, round_id, game_id, kind, status, amount_minor, currency,

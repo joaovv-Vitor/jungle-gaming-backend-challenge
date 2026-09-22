@@ -38,7 +38,9 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 6 concluídas: hash canônico do envelope, inbox e efeito financeiro no mesmo commit, reentrega com efeito único, conflito de hash, cruzamento HTTP/SQS, rollback da inbox, readiness do SQS, consumo/deleção reais e redrive automatizado no LocalStack. A falha entre commit e delete também possui teste automatizado, que comprova o replay seguro na entrega seguinte.
 - Métricas iniciais da Fase 6 implementadas: recebimentos distinguem primeira entrega e reentrega pelo `ApproximateReceiveCount`; tentativas registram resultado e duração com labels de cardinalidade limitada, expostas em `/metrics` por um registry isolado.
 - Concorrência da Fase 6 validada com três consumidores SQS e pools PostgreSQL independentes, barreira explícita de início, grupos FIFO distintos e reentregas posteriores; cada efeito financeiro permaneceu único.
-- Próxima etapa: Fase 7, com processamento durável de referências pendentes.
+- Fase 7 concluída: worker concorrente de referências pendentes com agenda e lease no PostgreSQL, backoff com jitter, TTL, reavaliação sob lock da carteira, resultado financeiro e eventos atômicos.
+- Verificações da Fase 7 concluídas em PostgreSQL real: resolução após chegada tardia, referência ainda pendente, referência rejeitada/incompatível, expiração, lease assumido por outro pool e token obsoleto incapaz de alterar a agenda. O bootstrap completo iniciou dois workers e respondeu ao readiness.
+- Próxima etapa: Fase 8, publicação e recuperação da outbox transacional.
 
 ---
 

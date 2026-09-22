@@ -61,6 +61,7 @@ type Session interface {
 	LockWallet(context.Context, string) (*wallet.Wallet, error)
 	HasProcessedReversal(context.Context, string) (bool, error)
 	InsertTransaction(context.Context, *domain.Transaction, *ReferenceSchedule) error
+	UpdateTransaction(context.Context, *domain.Transaction) error
 	UpdateWallet(context.Context, *wallet.Wallet) error
 	InsertLedger(context.Context, *ledger.Entry) error
 	InsertEvent(context.Context, event.IntegrationEvent) error

@@ -4,7 +4,7 @@ Implementação em andamento do desafio descrito em `teste tecnoco.md`. A arquit
 
 ## Estado atual
 
-O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e processamento idempotente por HTTP e SQS de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. No SQS, inbox, carteira, transação, ledger e outbox são confirmados atomicamente antes da remoção da mensagem. Publicação da outbox e workers de referência permanecem em implementação.
+O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e processamento idempotente por HTTP e SQS de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. No SQS, inbox, carteira, transação, ledger e outbox são confirmados atomicamente antes da remoção da mensagem. Um worker durável retoma referências pendentes; a publicação da outbox permanece em implementação.
 
 ## Requisitos locais
 
@@ -93,7 +93,9 @@ curl -H "Authorization: Bearer $PROVIDER_TOKEN" http://localhost:8080/wagering/t
 curl -H "Authorization: Bearer $PROVIDER_TOKEN" http://localhost:8080/providers/provider-a/wagering/transactions/transaction-123
 ```
 
-`REFUND` e `ROLLBACK` exigem `referenceExternalTransactionId`; `WIN` pode fornecê-lo. Referências ainda não recebidas retornam `202` com estado `PENDING_REFERENCE` e ficam agendadas de forma durável.
+`REFUND` e `ROLLBACK` exigem `referenceExternalTransactionId`; `WIN` pode fornecê-lo. Referências ainda não recebidas retornam `202` com estado `PENDING_REFERENCE` e ficam agendadas de forma durável. O worker reavalia a referência sob o lock da carteira, com backoff entre 1 segundo e 5 minutos e limite de espera de 24 horas. Uma referência recebida posteriormente pode concluir a transação; uma referência rejeitada ou incompatível rejeita a dependente. Se continuar ausente ou pendente após o prazo, a transação é rejeitada com `REFERENCE_NOT_FOUND`. Consulte a transação pelo `transactionId` para obter o estado atualizado; repetir o envio idempotente também devolve esse estado. A agenda e o lease ficam no PostgreSQL, permitindo retomada por outra instância após falha.
+
+O worker usa `APP_REFERENCE_WORKERS` (padrão `2`), `APP_REFERENCE_POLL_INTERVAL` (`500ms`), `APP_REFERENCE_PROCESSING_TIMEOUT` (`10s`) e `APP_REFERENCE_LEASE` (`30s`). Configure o lease acima do timeout de processamento e mantenha capacidade de conexões PostgreSQL para os workers e demais consumidores.
 
 ### Operações via SQS
 

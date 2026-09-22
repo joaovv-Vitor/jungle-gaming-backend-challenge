@@ -32,6 +32,9 @@ const (
 	defaultSQSProcessing     = 20 * time.Second
 	defaultSQSShutdown       = 30 * time.Second
 	defaultSQSPingTimeout    = 2 * time.Second
+	defaultReferencePoll     = 500 * time.Millisecond
+	defaultReferenceLease    = 30 * time.Second
+	defaultReferenceProcess  = 10 * time.Second
 )
 
 type Config struct {
@@ -63,6 +66,10 @@ type Config struct {
 	SQSPingTimeout      time.Duration
 	SQSReceiveBatch     int32
 	SQSConcurrency      int32
+	ReferencePoll       time.Duration
+	ReferenceLease      time.Duration
+	ReferenceProcess    time.Duration
+	ReferenceWorkers    int32
 }
 
 func Load() (Config, error) {
@@ -95,6 +102,10 @@ func Load() (Config, error) {
 		SQSPingTimeout:      defaultSQSPingTimeout,
 		SQSReceiveBatch:     10,
 		SQSConcurrency:      4,
+		ReferencePoll:       defaultReferencePoll,
+		ReferenceLease:      defaultReferenceLease,
+		ReferenceProcess:    defaultReferenceProcess,
+		ReferenceWorkers:    2,
 	}
 
 	var err error
@@ -146,6 +157,18 @@ func Load() (Config, error) {
 	if cfg.SQSConcurrency, err = int32Value("APP_SQS_CONCURRENCY", cfg.SQSConcurrency); err != nil {
 		return Config{}, err
 	}
+	if cfg.ReferencePoll, err = duration("APP_REFERENCE_POLL_INTERVAL", cfg.ReferencePoll); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReferenceLease, err = duration("APP_REFERENCE_LEASE", cfg.ReferenceLease); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReferenceProcess, err = duration("APP_REFERENCE_PROCESSING_TIMEOUT", cfg.ReferenceProcess); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReferenceWorkers, err = int32Value("APP_REFERENCE_WORKERS", cfg.ReferenceWorkers); err != nil {
+		return Config{}, err
+	}
 
 	return cfg, cfg.validate()
 }
@@ -188,6 +211,10 @@ func (c Config) validate() error {
 	}
 	if c.SQSReceiveBatch < 1 || c.SQSReceiveBatch > 10 || c.SQSConcurrency < 1 {
 		return errors.New("SQS receive batch must be 1..10 and concurrency must be positive")
+	}
+	if c.ReferenceWorkers < 1 || c.ReferenceWorkers > c.DatabaseMaxConns ||
+		c.ReferenceLease <= c.ReferenceProcess || c.ReferencePoll <= 0 {
+		return errors.New("reference workers must fit the database pool and lease must exceed processing timeout")
 	}
 	return nil
 }

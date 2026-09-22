@@ -110,5 +110,8 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - registry Prometheus privado, endpoint `/metrics` e métricas SQS de recebimento, reentrega, resultado e duração sem IDs como labels;
 - recuperação automatizada da falha entre commit e delete: a mensagem não confirmada volta como replay e pode então ser removida com segurança;
 - redrive real automatizado e três consumidores independentes validados com filas isoladas, clientes SQS e pools PostgreSQL próprios.
+- worker de referências pendentes com reivindicação curta via `FOR UPDATE SKIP LOCKED`, lease persistido e token obrigatório nas atualizações;
+- continuação financeira sob lock da carteira, com reavaliação da referência, TTL de 24 horas, backoff com jitter e eventos terminais no mesmo commit;
+- testes em PostgreSQL real para resolução tardia, referência rejeitada/incompatível, expiração, reaquisição de lease por outro pool e rejeição de token obsoleto.
 
-Publicação da outbox e workers de referência ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL, Keycloak e SQS.
+Publicação da outbox ainda será acrescentada nas próximas fases. O readiness agrega PostgreSQL, Keycloak e SQS.

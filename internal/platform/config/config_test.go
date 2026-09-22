@@ -77,6 +77,15 @@ func TestLoadRejectsIncompatibleSQSConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsReferenceLeaseShorterThanProcessing(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("APP_REFERENCE_LEASE", "5s")
+	t.Setenv("APP_REFERENCE_PROCESSING_TIMEOUT", "10s")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted a reference lease shorter than processing timeout")
+	}
+}
+
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_HTTP_ADDR", defaultHTTPAddress)
@@ -107,4 +116,8 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("APP_SQS_PING_TIMEOUT", defaultSQSPingTimeout.String())
 	t.Setenv("APP_SQS_RECEIVE_BATCH", "10")
 	t.Setenv("APP_SQS_CONCURRENCY", "4")
+	t.Setenv("APP_REFERENCE_POLL_INTERVAL", defaultReferencePoll.String())
+	t.Setenv("APP_REFERENCE_LEASE", defaultReferenceLease.String())
+	t.Setenv("APP_REFERENCE_PROCESSING_TIMEOUT", defaultReferenceProcess.String())
+	t.Setenv("APP_REFERENCE_WORKERS", "2")
 }

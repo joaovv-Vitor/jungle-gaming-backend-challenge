@@ -27,8 +27,64 @@ func (s *Service) process(
 	if pending {
 		return s.persistPending(ctx, session, transaction, input, now)
 	}
+	return s.finish(ctx, session, account, transaction, input, reference, failure, false, now)
+}
+
+// ResumePendingInSession continues a previously persisted transaction. The
+// caller owns the wallet lock, pending transaction lock, and SQL transaction.
+// A missing or still pending reference remains scheduled until its stored TTL.
+func (s *Service) ResumePendingInSession(
+	ctx context.Context,
+	session Session,
+	account *wallet.Wallet,
+	transaction *domain.Transaction,
+	expired bool,
+	now time.Time,
+) (bool, error) {
+	if transaction == nil || transaction.Status() != domain.StatusPendingReference ||
+		account == nil || account.ID() != transaction.WalletID() {
+		return false, ErrInvalidInput
+	}
+	input := SubmitInput{
+		ProviderID: transaction.ProviderID(), ExternalTransactionID: transaction.ExternalTransactionID(),
+		IdempotencyKey: transaction.IdempotencyKey(), WalletID: transaction.WalletID(),
+		PlayerID: transaction.PlayerID(), RoundID: transaction.RoundID(), GameID: transaction.GameID(),
+		Kind: transaction.Kind(), Amount: transaction.Amount(),
+		ReferenceExternalTransactionID: transaction.ReferenceExternalTransactionID(),
+		CorrelationID:                  transaction.ID(),
+	}
+	if now.Before(transaction.UpdatedAt()) {
+		now = transaction.UpdatedAt()
+	}
+	if now.Before(account.UpdatedAt()) {
+		now = account.UpdatedAt()
+	}
+	reference, pending, failure, err := resolveReference(ctx, session, input)
+	if err != nil {
+		return false, err
+	}
+	if pending && !expired {
+		return false, nil
+	}
+	if pending {
+		failure = domain.FailureReferenceNotFound
+	}
+	return true, s.finish(ctx, session, account, transaction, input, reference, failure, true, now)
+}
+
+func (s *Service) finish(
+	ctx context.Context,
+	session Session,
+	account *wallet.Wallet,
+	transaction *domain.Transaction,
+	input SubmitInput,
+	reference *domain.Transaction,
+	failure domain.FailureCode,
+	existing bool,
+	now time.Time,
+) error {
 	if failure != "" {
-		return s.persistRejected(ctx, session, transaction, account.Balance(), input, failure, now)
+		return s.persistRejected(ctx, session, transaction, account.Balance(), input, failure, existing, now)
 	}
 	if reference != nil {
 		if err := transaction.ResolveReference(reference.ID(), now); err != nil {
@@ -40,7 +96,7 @@ func (s *Service) process(
 				return err
 			}
 			if reversed {
-				return s.persistRejected(ctx, session, transaction, account.Balance(), input, domain.FailureAlreadyReversed, now)
+				return s.persistRejected(ctx, session, transaction, account.Balance(), input, domain.FailureAlreadyReversed, existing, now)
 			}
 		}
 	}
@@ -49,7 +105,7 @@ func (s *Service) process(
 		if err := transaction.MarkProcessed(account.Balance(), now); err != nil {
 			return err
 		}
-		if err := session.InsertTransaction(ctx, transaction, nil); err != nil {
+		if err := persistTransaction(ctx, session, transaction, existing); err != nil {
 			return err
 		}
 		_, err := s.insertProcessedEvent(ctx, session, transaction, input, account.Balance(), now)
@@ -61,6 +117,7 @@ func (s *Service) process(
 		direction = ledger.DirectionDebit
 	}
 	var before, after money.Money
+	var err error
 	if direction == ledger.DirectionDebit {
 		before, after, err = account.Debit(input.Amount, now)
 	} else {
@@ -71,10 +128,10 @@ func (s *Service) process(
 		if input.Kind == domain.KindRollback {
 			code = domain.FailureReversalInsufficientFunds
 		}
-		return s.persistRejected(ctx, session, transaction, account.Balance(), input, code, now)
+		return s.persistRejected(ctx, session, transaction, account.Balance(), input, code, existing, now)
 	}
 	if errors.Is(err, money.ErrOverflow) {
-		return s.persistRejected(ctx, session, transaction, account.Balance(), input, domain.FailureMoneyOverflow, now)
+		return s.persistRejected(ctx, session, transaction, account.Balance(), input, domain.FailureMoneyOverflow, existing, now)
 	}
 	if err != nil {
 		return err
@@ -97,7 +154,7 @@ func (s *Service) process(
 	if err := session.UpdateWallet(ctx, account); err != nil {
 		return err
 	}
-	if err := session.InsertTransaction(ctx, transaction, nil); err != nil {
+	if err := persistTransaction(ctx, session, transaction, existing); err != nil {
 		return err
 	}
 	if err := session.InsertLedger(ctx, entry); err != nil {
@@ -108,6 +165,13 @@ func (s *Service) process(
 		return err
 	}
 	return s.insertBalanceEvent(ctx, session, transaction, input, direction, before, after, account.Version(), processedEventID, now)
+}
+
+func persistTransaction(ctx context.Context, session Session, transaction *domain.Transaction, existing bool) error {
+	if existing {
+		return session.UpdateTransaction(ctx, transaction)
+	}
+	return session.InsertTransaction(ctx, transaction, nil)
 }
 
 func resolveReference(
@@ -186,12 +250,13 @@ func (s *Service) persistRejected(
 	balance money.Money,
 	input SubmitInput,
 	code domain.FailureCode,
+	existing bool,
 	now time.Time,
 ) error {
 	if err := transaction.Reject(code, balance, now); err != nil {
 		return err
 	}
-	if err := session.InsertTransaction(ctx, transaction, nil); err != nil {
+	if err := persistTransaction(ctx, session, transaction, existing); err != nil {
 		return err
 	}
 	eventID, err := s.newID()
