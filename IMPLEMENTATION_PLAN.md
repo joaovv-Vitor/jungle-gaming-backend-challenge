@@ -29,6 +29,8 @@ Atualizado em 22 de setembro de 2026:
 - Fase 2 concluída: `Money`, `Wallet`, `WagerTransaction`, `WalletLedgerEntry` e os quatro eventos tipados implementados com criação e reidratação separadas e erros classificáveis.
 - Verificações da Fase 2 concluídas: regras de tipos e estados, zero values inválidos, saldo não negativo, moedas incompatíveis, equações do ledger, snapshots de eventos e overflow monetário.
 - Próxima fase ativa: Fase 3, banco e migrations.
+- Fase 3 em andamento: PostgreSQL 18, roles, migration inicial, constraints, índices e triggers implementados; `up/down` e proteções da role de runtime validados em banco real.
+- Pendente na Fase 3: pool `pgx`, unidade de trabalho, repositórios, mapeamentos e testes de integração automatizados.
 
 ---
 

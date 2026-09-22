@@ -60,5 +60,10 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - ledger com equação de crédito/débito validada e versão da carteira;
 - envelopes e payloads tipados para os quatro eventos obrigatórios;
 - criação e reidratação separadas, sem emissão de eventos durante reidratação.
+- PostgreSQL 18 no Compose, com volume persistente, healthcheck e migrations versionadas;
+- roles distintas para migrations e runtime, sem `DELETE`/`TRUNCATE` no ledger;
+- schema inicial para carteiras, transações, ledger, inbox e outbox;
+- constraints diferíveis que exigem correspondência entre saldo, versão, transação processada e ledger;
+- triggers que protegem ledger, identidade/estado terminal das transações e snapshot da outbox.
 
-PostgreSQL, Keycloak, SQS, migrations e casos de uso transacionais ainda serão acrescentados nas próximas fases. Os health checks atuais representam apenas o processo HTTP; readiness passará a agregar PostgreSQL e SQS quando essas dependências existirem.
+O pool `pgx`, repositórios, Keycloak, SQS e casos de uso transacionais ainda serão acrescentados nas próximas fases. Os health checks atuais representam apenas o processo HTTP; readiness passará a agregar PostgreSQL e SQS quando essas dependências forem conectadas à aplicação.

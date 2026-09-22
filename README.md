@@ -31,6 +31,33 @@ Com Docker:
 docker compose up --build
 ```
 
+## PostgreSQL e migrations
+
+O Compose cria uma role administrativa para migrations e uma role limitada para a aplicação. Em um volume novo, a migration inicial é aplicada automaticamente:
+
+```sh
+docker compose up -d postgres
+docker compose ps postgres
+```
+
+Aplicação manual em um banco vazio:
+
+```sh
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
+  -f /migrations/000001_initial.up.sql
+```
+
+Reversão, que remove permanentemente todas as tabelas e seus dados:
+
+```sh
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
+  -f /migrations/000001_initial.down.sql
+```
+
+As credenciais de `.env.example` são apenas para o ambiente local.
+
 ## Verificações
 
 ```sh
