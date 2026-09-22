@@ -12,7 +12,9 @@ O serviço recebe operações por HTTP autenticado e por uma fila produzida por 
 
 ### Dinheiro
 
-`Money` usará `int64` em unidades mínimas, moeda explícita e escala fixa de duas casas. Entradas e saídas usam strings decimais. Nenhum caminho fará conversão por ponto flutuante. Parsing, soma, subtração e negação verificarão overflow e compatibilidade de moeda.
+`Money` usa `int64` em unidades mínimas, moeda explícita e escala fixa de duas casas. Entradas e saídas usam strings decimais. Nenhum caminho faz conversão por ponto flutuante. Parsing, soma, subtração e negação verificam overflow e compatibilidade de moeda.
+
+O parser interno aceita sinal para permitir diferenças e cálculos negativos. O parser de entrada externa recusa qualquer sinal negativo, inclusive `-0.00`, e exige exatamente duas casas. Representações com zeros à esquerda são aceitas e normalizadas antes de serialização e do futuro hash canônico (`00025.00` torna-se `25.00`). A lista inicial de moedas suportadas é BRL, USD e EUR; cenários financeiros principais permanecem em BRL.
 
 ### Concorrência e transações
 
@@ -52,5 +54,11 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - servidor `net/http` com timeouts, liveness, readiness e graceful shutdown;
 - build multi-stage e execução local por Docker Compose;
 - testes unitários do bootstrap HTTP e configuração.
+- value object `Money` com parsing estrito, serialização decimal, moedas e proteção de overflow;
+- agregado `Wallet` com saldo não negativo, débito/crédito e versionamento;
+- `WagerTransaction` com origens, seis tipos, cinco estados e transições terminais protegidas;
+- ledger com equação de crédito/débito validada e versão da carteira;
+- envelopes e payloads tipados para os quatro eventos obrigatórios;
+- criação e reidratação separadas, sem emissão de eventos durante reidratação.
 
-PostgreSQL, Keycloak, SQS, migrations e domínio financeiro ainda serão acrescentados nas próximas fases. Os health checks atuais representam apenas o processo HTTP; readiness passará a agregar PostgreSQL e SQS quando essas dependências existirem.
+PostgreSQL, Keycloak, SQS, migrations e casos de uso transacionais ainda serão acrescentados nas próximas fases. Os health checks atuais representam apenas o processo HTTP; readiness passará a agregar PostgreSQL e SQS quando essas dependências existirem.

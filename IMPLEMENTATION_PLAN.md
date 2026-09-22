@@ -26,7 +26,9 @@ Atualizado em 22 de setembro de 2026:
 - Fase 1 implementada: módulo Go, Fx, configuração, logger JSON, HTTP, health checks, graceful shutdown, Dockerfile, Compose e `.env.example`.
 - Verificações da Fase 1 concluídas: `go test ./...`, `go test -race ./...`, `go vet ./...`, teste real de startup/health/shutdown, `docker compose config` e `docker compose up --build` com container saudável.
 - Fase 1 aceita: imagem multi-stage construída, liveness/readiness validados pela porta publicada e graceful shutdown confirmado após `SIGTERM`.
-- Próxima fase ativa: Fase 2, domínio financeiro.
+- Fase 2 concluída: `Money`, `Wallet`, `WagerTransaction`, `WalletLedgerEntry` e os quatro eventos tipados implementados com criação e reidratação separadas e erros classificáveis.
+- Verificações da Fase 2 concluídas: regras de tipos e estados, zero values inválidos, saldo não negativo, moedas incompatíveis, equações do ledger, snapshots de eventos e overflow monetário.
+- Próxima fase ativa: Fase 3, banco e migrations.
 
 ---
 
@@ -1448,7 +1450,7 @@ A implementação estará concluída quando:
 
 ## 23. Próximo passo imediato
 
-Implementar a Fase 2 começando pelo value object `Money`, seus erros classificáveis e a suíte de limites/overflow. Em seguida, implementar `Wallet`, `WagerTransaction`, `WalletLedgerEntry` e os eventos tipados, mantendo criação e reidratação separadas.
+Implementar a Fase 3: provisionar PostgreSQL no Compose, definir migrations up/down com roles e constraints, integrar o pool `pgx`, criar a unidade de trabalho e os mapeamentos dos agregados. A primeira evidência deve executar migrations em PostgreSQL real e provar por SQL direto as restrições de saldo, unicidade e imutabilidade do ledger.
 
 ---
 

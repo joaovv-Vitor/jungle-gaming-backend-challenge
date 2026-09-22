@@ -4,7 +4,7 @@ Implementação em andamento do desafio descrito em `teste tecnoco.md`. A arquit
 
 ## Estado atual
 
-O bootstrap da aplicação já inclui Go Modules, composição com Uber Fx, configuração validada, logs JSON, servidor HTTP e graceful shutdown. PostgreSQL, Keycloak, SQS e os fluxos financeiros serão adicionados nas próximas fases.
+O projeto já inclui o bootstrap com Uber Fx, configuração validada, logs JSON, servidor HTTP, graceful shutdown e o domínio financeiro (`Money`, carteira, transações, ledger e eventos). PostgreSQL, Keycloak, SQS e os casos de uso transacionais serão adicionados nas próximas fases.
 
 ## Requisitos locais
 
