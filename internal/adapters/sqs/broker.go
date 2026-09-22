@@ -1,0 +1,112 @@
+package sqsadapter
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
+)
+
+type sqsClient interface {
+	GetQueueUrl(context.Context, *awssqs.GetQueueUrlInput, ...func(*awssqs.Options)) (*awssqs.GetQueueUrlOutput, error)
+	GetQueueAttributes(context.Context, *awssqs.GetQueueAttributesInput, ...func(*awssqs.Options)) (*awssqs.GetQueueAttributesOutput, error)
+	ReceiveMessage(context.Context, *awssqs.ReceiveMessageInput, ...func(*awssqs.Options)) (*awssqs.ReceiveMessageOutput, error)
+	DeleteMessage(context.Context, *awssqs.DeleteMessageInput, ...func(*awssqs.Options)) (*awssqs.DeleteMessageOutput, error)
+	ChangeMessageVisibility(context.Context, *awssqs.ChangeMessageVisibilityInput, ...func(*awssqs.Options)) (*awssqs.ChangeMessageVisibilityOutput, error)
+}
+
+type Broker struct {
+	client sqsClient
+}
+
+type Message struct {
+	ID            string
+	Body          string
+	ReceiptHandle string
+}
+
+func NewBroker(cfg config.Config) (*Broker, error) {
+	sdkConfig, err := awsconfig.LoadDefaultConfig(context.Background(),
+		awsconfig.WithRegion(cfg.SQSRegion),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			cfg.SQSAccessKeyID, cfg.SQSSecretAccessKey, "",
+		)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load AWS configuration: %w", err)
+	}
+	client := awssqs.NewFromConfig(sdkConfig, func(options *awssqs.Options) {
+		options.BaseEndpoint = aws.String(cfg.SQSEndpoint)
+	})
+	return &Broker{client: client}, nil
+}
+
+func (b *Broker) QueueURL(ctx context.Context, name string) (string, error) {
+	result, err := b.client.GetQueueUrl(ctx, &awssqs.GetQueueUrlInput{QueueName: aws.String(name)})
+	if err != nil {
+		return "", fmt.Errorf("get SQS queue URL: %w", err)
+	}
+	if result.QueueUrl == nil || *result.QueueUrl == "" {
+		return "", fmt.Errorf("get SQS queue URL: empty response")
+	}
+	return *result.QueueUrl, nil
+}
+
+func (b *Broker) Ping(ctx context.Context, queueURL string) error {
+	_, err := b.client.GetQueueAttributes(ctx, &awssqs.GetQueueAttributesInput{
+		QueueUrl:       aws.String(queueURL),
+		AttributeNames: []types.QueueAttributeName{types.QueueAttributeNameQueueArn},
+	})
+	if err != nil {
+		return fmt.Errorf("get SQS queue attributes: %w", err)
+	}
+	return nil
+}
+
+func (b *Broker) Receive(ctx context.Context, queueURL string, batch, waitSeconds, visibilitySeconds int32) ([]Message, error) {
+	result, err := b.client.ReceiveMessage(ctx, &awssqs.ReceiveMessageInput{
+		QueueUrl:            aws.String(queueURL),
+		MaxNumberOfMessages: batch,
+		WaitTimeSeconds:     waitSeconds,
+		VisibilityTimeout:   visibilitySeconds,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("receive SQS messages: %w", err)
+	}
+	messages := make([]Message, 0, len(result.Messages))
+	for _, received := range result.Messages {
+		if received.MessageId == nil || received.Body == nil || received.ReceiptHandle == nil {
+			continue
+		}
+		messages = append(messages, Message{
+			ID: *received.MessageId, Body: *received.Body, ReceiptHandle: *received.ReceiptHandle,
+		})
+	}
+	return messages, nil
+}
+
+func (b *Broker) Delete(ctx context.Context, queueURL, receiptHandle string) error {
+	_, err := b.client.DeleteMessage(ctx, &awssqs.DeleteMessageInput{
+		QueueUrl: aws.String(queueURL), ReceiptHandle: aws.String(receiptHandle),
+	})
+	if err != nil {
+		return fmt.Errorf("delete SQS message: %w", err)
+	}
+	return nil
+}
+
+func (b *Broker) Release(ctx context.Context, queueURL, receiptHandle string) error {
+	_, err := b.client.ChangeMessageVisibility(ctx, &awssqs.ChangeMessageVisibilityInput{
+		QueueUrl: aws.String(queueURL), ReceiptHandle: aws.String(receiptHandle), VisibilityTimeout: 0,
+	})
+	if err != nil {
+		return fmt.Errorf("release SQS message visibility: %w", err)
+	}
+	return nil
+}

@@ -115,6 +115,26 @@ func NewService(store Store) *Service {
 }
 
 func (s *Service) Submit(ctx context.Context, input SubmitInput) (Result, error) {
+	var result Result
+	process := func(session Session) error {
+		var err error
+		result, err = s.SubmitInSession(ctx, session, input)
+		return err
+	}
+	err := s.store.WithinTransaction(ctx, process)
+	if errors.Is(err, ErrIdentityRace) {
+		err = s.store.WithinTransaction(ctx, process)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	return result, nil
+}
+
+// SubmitInSession processes an operation inside a transaction owned by the
+// caller. It allows transports with their own durable state, such as an SQS
+// inbox, to commit that state atomically with the financial effects.
+func (s *Service) SubmitInSession(ctx context.Context, session Session, input SubmitInput) (Result, error) {
 	if err := validateInput(input); err != nil {
 		return Result{}, err
 	}
@@ -138,61 +158,38 @@ func (s *Service) Submit(ctx context.Context, input SubmitInput) (Result, error)
 		return Result{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
 
-	var result Result
-	err = s.store.WithinTransaction(ctx, func(session Session) error {
-		replay, handled, err := evaluateIdentities(ctx, session, input, payloadHash)
-		if err != nil {
-			return err
-		}
-		if handled {
-			result = Result{Transaction: replay, Replay: true}
-			return nil
-		}
-		account, err := session.LockWallet(ctx, input.WalletID)
-		if err != nil {
-			return err
-		}
-		if account.PlayerID() != input.PlayerID || account.Currency() != input.Amount.Currency() {
-			return ErrWalletMismatch
-		}
-		replay, handled, err = evaluateIdentities(ctx, session, input, payloadHash)
-		if err != nil {
-			return err
-		}
-		if handled {
-			result = Result{Transaction: replay, Replay: true}
-			return nil
-		}
-		processingTime := s.now().UTC()
-		if processingTime.Before(receivedAt) {
-			processingTime = receivedAt
-		}
-		if processingTime.Before(account.UpdatedAt()) {
-			processingTime = account.UpdatedAt()
-		}
-		if err := s.process(ctx, session, account, transaction, input, processingTime); err != nil {
-			return err
-		}
-		result = Result{Transaction: transaction}
-		return nil
-	})
-	if errors.Is(err, ErrIdentityRace) {
-		err = s.store.WithinTransaction(ctx, func(session Session) error {
-			replay, handled, lookupErr := evaluateIdentities(ctx, session, input, payloadHash)
-			if lookupErr != nil {
-				return lookupErr
-			}
-			if !handled {
-				return ErrIdentityRace
-			}
-			result = Result{Transaction: replay, Replay: true}
-			return nil
-		})
-	}
+	replay, handled, err := evaluateIdentities(ctx, session, input, payloadHash)
 	if err != nil {
 		return Result{}, err
 	}
-	return result, nil
+	if handled {
+		return Result{Transaction: replay, Replay: true}, nil
+	}
+	account, err := session.LockWallet(ctx, input.WalletID)
+	if err != nil {
+		return Result{}, err
+	}
+	if account.PlayerID() != input.PlayerID || account.Currency() != input.Amount.Currency() {
+		return Result{}, ErrWalletMismatch
+	}
+	replay, handled, err = evaluateIdentities(ctx, session, input, payloadHash)
+	if err != nil {
+		return Result{}, err
+	}
+	if handled {
+		return Result{Transaction: replay, Replay: true}, nil
+	}
+	processingTime := s.now().UTC()
+	if processingTime.Before(receivedAt) {
+		processingTime = receivedAt
+	}
+	if processingTime.Before(account.UpdatedAt()) {
+		processingTime = account.UpdatedAt()
+	}
+	if err := s.process(ctx, session, account, transaction, input, processingTime); err != nil {
+		return Result{}, err
+	}
+	return Result{Transaction: transaction}, nil
 }
 
 func evaluateIdentities(

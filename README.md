@@ -4,7 +4,7 @@ Implementação em andamento do desafio descrito em `teste tecnoco.md`. A arquit
 
 ## Estado atual
 
-O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC, carteiras autenticadas e processamento HTTP idempotente de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. Carteira, transação, ledger e outbox são confirmados atomicamente. SQS, publicação da outbox e workers de referência permanecem em implementação.
+O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e processamento idempotente por HTTP e SQS de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. No SQS, inbox, carteira, transação, ledger e outbox são confirmados atomicamente antes da remoção da mensagem. Publicação da outbox, métricas e workers de referência permanecem em implementação.
 
 ## Requisitos locais
 
@@ -93,6 +93,20 @@ curl -H "Authorization: Bearer $PROVIDER_TOKEN" http://localhost:8080/providers/
 ```
 
 `REFUND` e `ROLLBACK` exigem `referenceExternalTransactionId`; `WIN` pode fornecê-lo. Referências ainda não recebidas retornam `202` com estado `PENDING_REFERENCE` e ficam agendadas de forma durável.
+
+### Operações via SQS
+
+O Compose provisiona `wager-transactions.fifo`, `wager-transactions-dlq.fifo` e `wager-events.fifo` no LocalStack. A fila de entrada usa long polling de 20 segundos, visibility de 60 segundos e redrive após cinco recebimentos. Envie mensagens usando `walletId` como `MessageGroupId` e uma identidade de transporte estável como `MessageDeduplicationId`:
+
+```sh
+docker compose exec -T localstack awslocal sqs send-message \
+  --queue-url http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/wager-transactions.fifo \
+  --message-group-id WALLET_ID \
+  --message-deduplication-id msg-123 \
+  --message-body '{"messageId":"msg-123","type":"WagerTransactionRequested","occurredAt":"2026-09-08T12:00:00Z","data":{"providerId":"provider-a","externalTransactionId":"transaction-123","idempotencyKey":"provider-a:transaction-123","playerId":"PLAYER_ID","walletId":"WALLET_ID","roundId":"round-987","gameId":"fortune-chimp","kind":"BET","money":{"amount":"25.00","currency":"BRL"}}}'
+```
+
+O `messageId` do envelope identifica a inbox. Reentregas com o mesmo conteúdo são confirmadas sem reaplicar o efeito; o mesmo `messageId` com conteúdo diferente permanece na fila para redrive. Um `messageId` novo ainda é deduplicado pelas identidades financeiras compartilhadas com o HTTP.
 
 | Situação | HTTP | Código/estado |
 | --- | ---: | --- |

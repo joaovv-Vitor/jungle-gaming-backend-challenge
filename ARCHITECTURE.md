@@ -52,6 +52,8 @@ Uma `BET` admite uma única reversão direta bem-sucedida, `REFUND` ou `ROLLBACK
 
 A inbox deduplica mensagens por consumidor e `messageId`, verificando também o hash do envelope. A conclusão da inbox compartilha o commit dos efeitos de negócio. Eventos são gravados na outbox antes da publicação; publishers concorrentes usam lease e token. Uma queda após o envio pode republicar o mesmo `eventId`, portanto a entrega externa permanece at-least-once.
 
+O consumidor usa AWS SDK for Go v2 e long polling. O envelope é validado e normalizado antes da transação; seu hash SHA-256 inclui `data`, `messageId`, `occurredAt` e `type`, mas não atributos de entrega do broker. A sessão de wagering pode ser executada dentro da transação aberta pela ingestão, permitindo confirmar inbox, carteira, transação, ledger e outbox atomicamente. A mensagem SQS só é apagada depois desse commit; falha no delete provoca reentrega segura.
+
 ### Autenticação e autorização
 
 O HTTP usará OAuth 2.0/OIDC com Keycloak local e `client_credentials`. O token determina o provider autorizado; valores do corpo nunca concedem autoridade. Endpoints de carteira e reconciliação exigem identidade interna. A fila de entrada aceita apenas um produtor interno confiável, porque `providerId` no payload não autentica o remetente.
@@ -100,5 +102,9 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - referências válidas, reversões únicas e persistência durável de referências ainda ausentes;
 - endpoints autenticados de envio e consulta de transações, sempre isolados pelo provider do token;
 - testes reais de concorrência para 50 duplicatas e duas apostas de `80.00` sobre saldo de `100.00`.
+- LocalStack 4.14.0 com fila de entrada FIFO, DLQ, redrive e fila FIFO de eventos;
+- consumidor SQS com long polling, concorrência limitada, shutdown coordenado e readiness;
+- envelope estrito com hash canônico e inbox PostgreSQL transacional compartilhando o commit financeiro;
+- reentrega e cruzamento HTTP/SQS com um único efeito financeiro, validados no PostgreSQL e LocalStack reais.
 
-SQS, inbox, publicação da outbox e workers de referência ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL e Keycloak e passará a agregar SQS quando essa dependência for conectada.
+Publicação da outbox, métricas do consumidor e workers de referência ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL, Keycloak e SQS.

@@ -66,6 +66,17 @@ func TestLoadRejectsInvalidOIDCConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsIncompatibleSQSConfiguration(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("APP_SQS_VISIBILITY_TIMEOUT", "20s")
+	t.Setenv("APP_SQS_PROCESSING_TIMEOUT", "20s")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want SQS timing validation error")
+	}
+}
+
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_HTTP_ADDR", defaultHTTPAddress)
@@ -83,4 +94,17 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("APP_OIDC_JWKS_URL", defaultOIDCJWKSURL)
 	t.Setenv("APP_OIDC_AUDIENCE", defaultOIDCAudience)
 	t.Setenv("APP_OIDC_PING_TIMEOUT", defaultOIDCPingTimeout.String())
+	t.Setenv("APP_SQS_ENDPOINT", defaultSQSEndpoint)
+	t.Setenv("APP_SQS_REGION", defaultSQSRegion)
+	t.Setenv("APP_SQS_ACCESS_KEY_ID", "test")
+	t.Setenv("APP_SQS_SECRET_ACCESS_KEY", "test")
+	t.Setenv("APP_SQS_INPUT_QUEUE", defaultSQSInputQueue)
+	t.Setenv("APP_SQS_CONSUMER_NAME", defaultSQSConsumerName)
+	t.Setenv("APP_SQS_LONG_POLL", defaultSQSLongPoll.String())
+	t.Setenv("APP_SQS_VISIBILITY_TIMEOUT", defaultSQSVisibility.String())
+	t.Setenv("APP_SQS_PROCESSING_TIMEOUT", defaultSQSProcessing.String())
+	t.Setenv("APP_SQS_SHUTDOWN_TIMEOUT", defaultSQSShutdown.String())
+	t.Setenv("APP_SQS_PING_TIMEOUT", defaultSQSPingTimeout.String())
+	t.Setenv("APP_SQS_RECEIVE_BATCH", "10")
+	t.Setenv("APP_SQS_CONCURRENCY", "4")
 }

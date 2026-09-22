@@ -23,6 +23,15 @@ const (
 	defaultOIDCJWKSURL       = "http://localhost:8081/realms/wagering/protocol/openid-connect/certs"
 	defaultOIDCAudience      = "wager-api"
 	defaultOIDCPingTimeout   = 2 * time.Second
+	defaultSQSEndpoint       = "http://localhost:4566"
+	defaultSQSRegion         = "us-east-1"
+	defaultSQSInputQueue     = "wager-transactions.fifo"
+	defaultSQSConsumerName   = "wager-transactions"
+	defaultSQSLongPoll       = 20 * time.Second
+	defaultSQSVisibility     = 60 * time.Second
+	defaultSQSProcessing     = 20 * time.Second
+	defaultSQSShutdown       = 30 * time.Second
+	defaultSQSPingTimeout    = 2 * time.Second
 )
 
 type Config struct {
@@ -41,6 +50,19 @@ type Config struct {
 	OIDCJWKSURL         string
 	OIDCAudience        string
 	OIDCPingTimeout     time.Duration
+	SQSEndpoint         string
+	SQSRegion           string
+	SQSAccessKeyID      string
+	SQSSecretAccessKey  string
+	SQSInputQueue       string
+	SQSConsumerName     string
+	SQSLongPoll         time.Duration
+	SQSVisibility       time.Duration
+	SQSProcessing       time.Duration
+	SQSShutdown         time.Duration
+	SQSPingTimeout      time.Duration
+	SQSReceiveBatch     int32
+	SQSConcurrency      int32
 }
 
 func Load() (Config, error) {
@@ -60,6 +82,19 @@ func Load() (Config, error) {
 		OIDCJWKSURL:         envOrDefault("APP_OIDC_JWKS_URL", defaultOIDCJWKSURL),
 		OIDCAudience:        envOrDefault("APP_OIDC_AUDIENCE", defaultOIDCAudience),
 		OIDCPingTimeout:     defaultOIDCPingTimeout,
+		SQSEndpoint:         envOrDefault("APP_SQS_ENDPOINT", defaultSQSEndpoint),
+		SQSRegion:           envOrDefault("APP_SQS_REGION", defaultSQSRegion),
+		SQSAccessKeyID:      envOrDefault("APP_SQS_ACCESS_KEY_ID", "test"),
+		SQSSecretAccessKey:  envOrDefault("APP_SQS_SECRET_ACCESS_KEY", "test"),
+		SQSInputQueue:       envOrDefault("APP_SQS_INPUT_QUEUE", defaultSQSInputQueue),
+		SQSConsumerName:     envOrDefault("APP_SQS_CONSUMER_NAME", defaultSQSConsumerName),
+		SQSLongPoll:         defaultSQSLongPoll,
+		SQSVisibility:       defaultSQSVisibility,
+		SQSProcessing:       defaultSQSProcessing,
+		SQSShutdown:         defaultSQSShutdown,
+		SQSPingTimeout:      defaultSQSPingTimeout,
+		SQSReceiveBatch:     10,
+		SQSConcurrency:      4,
 	}
 
 	var err error
@@ -84,10 +119,31 @@ func Load() (Config, error) {
 	if cfg.OIDCPingTimeout, err = duration("APP_OIDC_PING_TIMEOUT", cfg.OIDCPingTimeout); err != nil {
 		return Config{}, err
 	}
+	if cfg.SQSLongPoll, err = duration("APP_SQS_LONG_POLL", cfg.SQSLongPoll); err != nil {
+		return Config{}, err
+	}
+	if cfg.SQSVisibility, err = duration("APP_SQS_VISIBILITY_TIMEOUT", cfg.SQSVisibility); err != nil {
+		return Config{}, err
+	}
+	if cfg.SQSProcessing, err = duration("APP_SQS_PROCESSING_TIMEOUT", cfg.SQSProcessing); err != nil {
+		return Config{}, err
+	}
+	if cfg.SQSShutdown, err = duration("APP_SQS_SHUTDOWN_TIMEOUT", cfg.SQSShutdown); err != nil {
+		return Config{}, err
+	}
+	if cfg.SQSPingTimeout, err = duration("APP_SQS_PING_TIMEOUT", cfg.SQSPingTimeout); err != nil {
+		return Config{}, err
+	}
 	if cfg.DatabaseMaxConns, err = int32Value("APP_DATABASE_MAX_CONNS", cfg.DatabaseMaxConns); err != nil {
 		return Config{}, err
 	}
 	if cfg.DatabaseMinConns, err = int32Value("APP_DATABASE_MIN_CONNS", cfg.DatabaseMinConns); err != nil {
+		return Config{}, err
+	}
+	if cfg.SQSReceiveBatch, err = int32Value("APP_SQS_RECEIVE_BATCH", cfg.SQSReceiveBatch); err != nil {
+		return Config{}, err
+	}
+	if cfg.SQSConcurrency, err = int32Value("APP_SQS_CONCURRENCY", cfg.SQSConcurrency); err != nil {
 		return Config{}, err
 	}
 
@@ -115,6 +171,23 @@ func (c Config) validate() error {
 	}
 	if strings.TrimSpace(c.OIDCAudience) == "" {
 		return errors.New("APP_OIDC_AUDIENCE must not be empty")
+	}
+	if err := validHTTPURL("APP_SQS_ENDPOINT", c.SQSEndpoint); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.SQSRegion) == "" || strings.TrimSpace(c.SQSAccessKeyID) == "" ||
+		strings.TrimSpace(c.SQSSecretAccessKey) == "" || strings.TrimSpace(c.SQSInputQueue) == "" ||
+		strings.TrimSpace(c.SQSConsumerName) == "" {
+		return errors.New("SQS region, credentials, input queue and consumer name must not be empty")
+	}
+	if c.SQSLongPoll > 20*time.Second || c.SQSLongPoll%time.Second != 0 {
+		return errors.New("APP_SQS_LONG_POLL must be an integral number of seconds no greater than 20s")
+	}
+	if c.SQSVisibility%time.Second != 0 || c.SQSVisibility <= c.SQSProcessing {
+		return errors.New("SQS visibility must use whole seconds and exceed processing timeout")
+	}
+	if c.SQSReceiveBatch < 1 || c.SQSReceiveBatch > 10 || c.SQSConcurrency < 1 {
+		return errors.New("SQS receive batch must be 1..10 and concurrency must be positive")
 	}
 	return nil
 }

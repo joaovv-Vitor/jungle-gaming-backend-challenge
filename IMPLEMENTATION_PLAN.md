@@ -34,7 +34,9 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 4 concluídas: token ausente, inválido e expirado, provider impedido de operar carteiras, abertura positiva atômica, conflito persistente, abertura zero sem registros financeiros e consulta autenticada do ledger.
 - Fase 5 concluída: processamento financeiro dos cinco tipos externos, hash canônico, idempotência persistente, locks por carteira e endpoints autenticados de envio e consulta.
 - Verificações da Fase 5 concluídas: vetor SHA-256 estável, regras e referências dos cinco tipos, replay histórico e conflitos, isolamento entre providers, 50 entregas concorrentes distribuídas por três serviços/pools com efeito único, disputa de duas apostas de `80.00` sobre `100.00` por conexões independentes e fluxo HTTP real com Keycloak e PostgreSQL.
-- Próxima fase ativa: Fase 6, SQS e inbox.
+- Fase 6 em andamento: LocalStack, filas FIFO/DLQ, consumidor com long polling e inbox transacional já estão integrados ao mesmo caso de uso financeiro do HTTP.
+- Verificações parciais da Fase 6: hash canônico do envelope, inbox e efeito financeiro no mesmo commit, reentrega com efeito único, conflito de hash, cruzamento HTTP/SQS, rollback da inbox, readiness do SQS, consumo/deleção reais e redrive após cinco recebimentos no LocalStack.
+- Próximos itens da Fase 6: automatizar a prova de redrive, simular interrupção entre commit/delete, executar múltiplos consumidores e expor métricas de consumo.
 
 ---
 
