@@ -8,15 +8,18 @@ import (
 	applicationwagering "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
 	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
 func newMux(
 	status *health.Status,
+	instrumentation *metrics.Metrics,
 	authentication *auth.Middleware,
 	wallets *applicationwallet.Service,
 	wagers *applicationwagering.Service,
 ) *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", instrumentation.Handler())
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "up"})
 	})

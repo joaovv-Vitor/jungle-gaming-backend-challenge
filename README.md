@@ -4,7 +4,7 @@ Implementação em andamento do desafio descrito em `teste tecnoco.md`. A arquit
 
 ## Estado atual
 
-O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e processamento idempotente por HTTP e SQS de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. No SQS, inbox, carteira, transação, ledger e outbox são confirmados atomicamente antes da remoção da mensagem. Publicação da outbox, métricas e workers de referência permanecem em implementação.
+O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e processamento idempotente por HTTP e SQS de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. No SQS, inbox, carteira, transação, ledger e outbox são confirmados atomicamente antes da remoção da mensagem. Publicação da outbox e workers de referência permanecem em implementação.
 
 ## Requisitos locais
 
@@ -23,6 +23,7 @@ Verifique o processo:
 ```sh
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
+curl http://localhost:8080/metrics
 ```
 
 Com Docker:
@@ -107,6 +108,8 @@ docker compose exec -T localstack awslocal sqs send-message \
 ```
 
 O `messageId` do envelope identifica a inbox. Reentregas com o mesmo conteúdo são confirmadas sem reaplicar o efeito; o mesmo `messageId` com conteúdo diferente permanece na fila para redrive. Um `messageId` novo ainda é deduplicado pelas identidades financeiras compartilhadas com o HTTP.
+
+As métricas `wager_sqs_consumer_messages_received_total`, `wager_sqs_consumer_messages_processed_total` e `wager_sqs_consumer_message_processing_duration_seconds` permitem acompanhar primeiras entregas, reentregas, resultados e duração. Seus labels são limitados a classificações controladas e nunca carregam IDs financeiros ou de mensagens.
 
 | Situação | HTTP | Código/estado |
 | --- | ---: | --- |

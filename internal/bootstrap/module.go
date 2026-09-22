@@ -16,11 +16,13 @@ import (
 	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
 var Module = fx.Options(
 	fx.Module("config", fx.Provide(config.Load)),
 	fx.Module("logging", fx.Provide(newLogger)),
+	fx.Module("metrics", fx.Provide(metrics.New)),
 	fx.WithLogger(func(logger *slog.Logger) fxevent.Logger {
 		return &fxevent.SlogLogger{Logger: logger}
 	}),

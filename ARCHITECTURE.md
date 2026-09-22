@@ -105,6 +105,8 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - LocalStack 4.14.0 com fila de entrada FIFO, DLQ, redrive e fila FIFO de eventos;
 - consumidor SQS com long polling, concorrência limitada, shutdown coordenado e readiness;
 - envelope estrito com hash canônico e inbox PostgreSQL transacional compartilhando o commit financeiro;
-- reentrega e cruzamento HTTP/SQS com um único efeito financeiro, validados no PostgreSQL e LocalStack reais.
+- reentrega e cruzamento HTTP/SQS com um único efeito financeiro, validados no PostgreSQL e LocalStack reais;
+- registry Prometheus privado, endpoint `/metrics` e métricas SQS de recebimento, reentrega, resultado e duração sem IDs como labels;
+- recuperação automatizada da falha entre commit e delete: a mensagem não confirmada volta como replay e pode então ser removida com segurança.
 
-Publicação da outbox, métricas do consumidor e workers de referência ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL, Keycloak e SQS.
+Publicação da outbox e workers de referência ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL, Keycloak e SQS.

@@ -3,6 +3,7 @@ package sqsadapter
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -29,6 +30,7 @@ type Message struct {
 	ID            string
 	Body          string
 	ReceiptHandle string
+	ReceiveCount  int
 }
 
 func NewBroker(cfg config.Config) (*Broker, error) {
@@ -71,10 +73,11 @@ func (b *Broker) Ping(ctx context.Context, queueURL string) error {
 
 func (b *Broker) Receive(ctx context.Context, queueURL string, batch, waitSeconds, visibilitySeconds int32) ([]Message, error) {
 	result, err := b.client.ReceiveMessage(ctx, &awssqs.ReceiveMessageInput{
-		QueueUrl:            aws.String(queueURL),
-		MaxNumberOfMessages: batch,
-		WaitTimeSeconds:     waitSeconds,
-		VisibilityTimeout:   visibilitySeconds,
+		QueueUrl:                    aws.String(queueURL),
+		MaxNumberOfMessages:         batch,
+		WaitTimeSeconds:             waitSeconds,
+		VisibilityTimeout:           visibilitySeconds,
+		MessageSystemAttributeNames: []types.MessageSystemAttributeName{types.MessageSystemAttributeNameApproximateReceiveCount},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("receive SQS messages: %w", err)
@@ -84,8 +87,13 @@ func (b *Broker) Receive(ctx context.Context, queueURL string, batch, waitSecond
 		if received.MessageId == nil || received.Body == nil || received.ReceiptHandle == nil {
 			continue
 		}
+		receiveCount, parseErr := strconv.Atoi(received.Attributes[string(types.MessageSystemAttributeNameApproximateReceiveCount)])
+		if parseErr != nil || receiveCount < 1 {
+			receiveCount = 1
+		}
 		messages = append(messages, Message{
 			ID: *received.MessageId, Body: *received.Body, ReceiptHandle: *received.ReceiptHandle,
+			ReceiveCount: receiveCount,
 		})
 	}
 	return messages, nil

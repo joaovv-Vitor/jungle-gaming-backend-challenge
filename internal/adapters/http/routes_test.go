@@ -14,21 +14,23 @@ import (
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/ledger"
 	walletdomain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
 func TestHealthRoutes(t *testing.T) {
 	status := health.New()
-	mux := newMux(status, auth.NewMiddlewareWithVerifier(routeVerifier{}), applicationwallet.NewService(routeWalletStore{}), applicationwagering.NewService(routeWagerStore{}))
+	mux := newMux(status, metrics.New(), auth.NewMiddlewareWithVerifier(routeVerifier{}), applicationwallet.NewService(routeWalletStore{}), applicationwagering.NewService(routeWagerStore{}))
 
 	assertStatus(t, mux, "/health/live", http.StatusOK)
 	assertStatus(t, mux, "/health/ready", http.StatusServiceUnavailable)
 
 	status.SetReady(true)
 	assertStatus(t, mux, "/health/ready", http.StatusOK)
+	assertStatus(t, mux, "/metrics", http.StatusOK)
 }
 
 func TestWalletRoutesEnforceAuthenticationAndInternalRole(t *testing.T) {
-	mux := newMux(health.New(), auth.NewMiddlewareWithVerifier(routeVerifier{}), applicationwallet.NewService(routeWalletStore{}), applicationwagering.NewService(routeWagerStore{}))
+	mux := newMux(health.New(), metrics.New(), auth.NewMiddlewareWithVerifier(routeVerifier{}), applicationwallet.NewService(routeWalletStore{}), applicationwagering.NewService(routeWagerStore{}))
 	body := []byte(`{"playerId":"10000000-0000-4000-8000-000000000001","initialBalance":{"amount":"100.00","currency":"BRL"}}`)
 
 	for _, test := range []struct {
@@ -57,7 +59,7 @@ func TestWalletRoutesEnforceAuthenticationAndInternalRole(t *testing.T) {
 }
 
 func TestWagerRoutesEnforceAuthenticationProviderRoleAndOwnership(t *testing.T) {
-	mux := newMux(health.New(), auth.NewMiddlewareWithVerifier(routeVerifier{}), applicationwallet.NewService(routeWalletStore{}), applicationwagering.NewService(routeWagerStore{}))
+	mux := newMux(health.New(), metrics.New(), auth.NewMiddlewareWithVerifier(routeVerifier{}), applicationwallet.NewService(routeWalletStore{}), applicationwagering.NewService(routeWagerStore{}))
 	validBody := []byte(`{"providerId":"provider-a","externalTransactionId":"external-1","playerId":"10000000-0000-4000-8000-000000000001","walletId":"10000000-0000-4000-8000-000000000002","roundId":"round-1","gameId":"game-1","kind":"BET","money":{"amount":"25.00","currency":"BRL"}}`)
 
 	tests := []struct {

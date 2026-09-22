@@ -12,13 +12,27 @@ import (
 	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/ingestion"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
+type messageBroker interface {
+	QueueURL(context.Context, string) (string, error)
+	Ping(context.Context, string) error
+	Receive(context.Context, string, int32, int32, int32) ([]Message, error)
+	Delete(context.Context, string, string) error
+	Release(context.Context, string, string) error
+}
+
+type messageIngester interface {
+	Consume(context.Context, string, application.Message) (application.Result, error)
+}
+
 type Consumer struct {
-	broker    *Broker
-	ingestion *application.Service
-	cfg       config.Config
-	logger    *slog.Logger
+	broker          messageBroker
+	ingestion       messageIngester
+	instrumentation *metrics.Metrics
+	cfg             config.Config
+	logger          *slog.Logger
 
 	mu         sync.RWMutex
 	queueURL   string
@@ -36,14 +50,26 @@ func NewConsumer(
 	cfg config.Config,
 	status *health.Status,
 	logger *slog.Logger,
+	instrumentation *metrics.Metrics,
 ) *Consumer {
-	consumer := &Consumer{
-		broker: broker, ingestion: ingestion, cfg: cfg, logger: logger,
-		semaphore: make(chan struct{}, cfg.SQSConcurrency),
-	}
+	consumer := newConsumer(broker, ingestion, cfg, logger, instrumentation)
 	status.Register("sqs", consumer.check)
 	lifecycle.Append(fx.Hook{OnStart: consumer.start, OnStop: consumer.stop})
 	return consumer
+}
+
+func newConsumer(
+	broker messageBroker,
+	ingestion messageIngester,
+	cfg config.Config,
+	logger *slog.Logger,
+	instrumentation *metrics.Metrics,
+) *Consumer {
+	return &Consumer{
+		broker: broker, ingestion: ingestion, cfg: cfg, logger: logger,
+		instrumentation: instrumentation,
+		semaphore:       make(chan struct{}, cfg.SQSConcurrency),
+	}
 }
 
 func (c *Consumer) check(parent context.Context) error {
@@ -103,6 +129,7 @@ func (c *Consumer) run(pollCtx, workCtx context.Context) {
 			continue
 		}
 		for _, message := range messages {
+			c.instrumentation.RecordSQSReceived(message.ReceiveCount)
 			select {
 			case c.semaphore <- struct{}{}:
 			case <-pollCtx.Done():
@@ -119,8 +146,14 @@ func (c *Consumer) run(pollCtx, workCtx context.Context) {
 }
 
 func (c *Consumer) handle(parent context.Context, received Message) {
+	startedAt := time.Now()
+	metricResult := metrics.SQSResultProcessingError
+	defer func() {
+		c.instrumentation.ObserveSQSProcessing(metricResult, time.Since(startedAt))
+	}()
 	message, err := application.DecodeMessage([]byte(received.Body))
 	if err != nil {
+		metricResult = metrics.SQSResultInvalid
 		c.logger.Warn("invalid SQS message left for redrive", "brokerMessageId", received.ID, "error", err)
 		return
 	}
@@ -137,8 +170,13 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), c.cfg.SQSPingTimeout)
 	defer deleteCancel()
 	if err := c.broker.Delete(deleteCtx, c.currentQueueURL(), received.ReceiptHandle); err != nil {
+		metricResult = metrics.SQSResultDeleteError
 		c.logger.Error("SQS message committed but delete failed", "brokerMessageId", received.ID, "messageId", message.ID, "transactionId", result.WagerResult.Transaction.ID(), "error", err)
 		return
+	}
+	metricResult = metrics.SQSResultProcessed
+	if result.Duplicate || result.WagerResult.Replay {
+		metricResult = metrics.SQSResultReplay
 	}
 	c.logger.Info("SQS message processed", "brokerMessageId", received.ID, "messageId", message.ID, "transactionId", result.WagerResult.Transaction.ID(), "duplicate", result.Duplicate || result.WagerResult.Replay)
 }
