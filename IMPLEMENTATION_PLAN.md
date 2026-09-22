@@ -44,7 +44,8 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 8 concluídas: dois publishers/pools disputando eventos, recuperação de lease abandonado, rejeição de token antigo, falha antes do envio, falha após envio e antes da confirmação, reenvio com o mesmo `eventId` e publicação real na fila FIFO do LocalStack.
 - Fase 9 implementada: endpoint interno de reconciliação em snapshot somente leitura, cálculo monetário sem perda de precisão, detecção de overflow e divergências, logs de correlação e métricas de transações, workers, filas, readiness e shutdown.
 - Verificações da Fase 9 incluem saldo com e sem lançamentos, diferença negativa, overflow, visibilidade antes/depois de commit financeiro, autorização da rota, recuperação do readiness e labels de métricas limitados.
-- Próxima etapa: Fase 10, cenários distribuídos e hardening.
+- Fase 10 em andamento: teste de integração sobe três processos reais do binário com PIDs, portas e pools distintos; confirma a disputa de duas apostas, 50 entregas HTTP idênticas, progresso de uma carteira independente enquanto outra aguarda um lock observado no PostgreSQL, encerramento por SIGTERM e replay após reinício completo. A verificação final compara saldo, versão, ledger e contagem de eventos da outbox.
+- Próxima etapa: completar a matriz de falhas temporárias de PostgreSQL/SQS, revisar timeouts e planos de consulta/índices antes da documentação de entrega.
 
 ---
 

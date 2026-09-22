@@ -120,4 +120,4 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - métricas de resultados confirmados, replays, filas, retries, divergência e dependências com labels controlados, além de logs de correlação sem payloads ou credenciais;
 - `/metrics` restrito ao papel interno; readiness inclui PostgreSQL, Keycloak, filas de entrada, saída e DLQ.
 
-Os cenários distribuídos de hardening e a revisão final de entrega seguem nas próximas fases.
+O teste multiprocesso da Fase 10 inicia três cópias reais do binário com portas e pools próprios e usa barreiras para a disputa financeira. Uma conexão PostgreSQL segura o lock da carteira A; o teste observa outra conexão aguardando `FOR NO KEY UPDATE` antes de comprovar que a carteira B avança por outra instância. Também encerra os três processos por SIGTERM, reinicia-os e demonstra replay persistente, conferindo saldo, versão, ledger e outbox por SQL. Falhas temporárias de dependências, revisão de planos de consulta e a revisão final de entrega ainda estão pendentes.
