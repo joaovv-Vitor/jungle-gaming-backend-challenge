@@ -45,6 +45,17 @@ func TestLoadReadsEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidDatabasePool(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("APP_DATABASE_MIN_CONNS", "5")
+	t.Setenv("APP_DATABASE_MAX_CONNS", "4")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want database pool validation error")
+	}
+}
+
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_HTTP_ADDR", defaultHTTPAddress)
@@ -54,4 +65,8 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("APP_HTTP_WRITE_TIMEOUT", defaultWriteTimeout.String())
 	t.Setenv("APP_HTTP_IDLE_TIMEOUT", defaultIdleTimeout.String())
 	t.Setenv("APP_SHUTDOWN_TIMEOUT", defaultShutdownTimeout.String())
+	t.Setenv("APP_DATABASE_URL", defaultDatabaseURL)
+	t.Setenv("APP_DATABASE_MAX_CONNS", "20")
+	t.Setenv("APP_DATABASE_MIN_CONNS", "2")
+	t.Setenv("APP_DATABASE_PING_TIMEOUT", defaultDatabasePing.String())
 }

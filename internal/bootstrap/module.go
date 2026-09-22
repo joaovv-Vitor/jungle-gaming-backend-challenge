@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx/fxevent"
 
 	httpadapter "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/http"
+	postgresadapter "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/postgres"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
 )
@@ -19,6 +20,7 @@ var Module = fx.Options(
 		return &fxevent.SlogLogger{Logger: logger}
 	}),
 	fx.Module("health", fx.Provide(health.New)),
+	postgresadapter.Module,
 	httpadapter.Module,
 )
 

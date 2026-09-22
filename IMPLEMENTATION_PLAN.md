@@ -30,7 +30,8 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 2 concluídas: regras de tipos e estados, zero values inválidos, saldo não negativo, moedas incompatíveis, equações do ledger, snapshots de eventos e overflow monetário.
 - Próxima fase ativa: Fase 3, banco e migrations.
 - Fase 3 em andamento: PostgreSQL 18, roles, migration inicial, constraints, índices e triggers implementados; `up/down` e proteções da role de runtime validados em banco real.
-- Pendente na Fase 3: pool `pgx`, unidade de trabalho, repositórios, mapeamentos e testes de integração automatizados.
+- Fase 3 avançada: `pgxpool` e unidade de trabalho integrados ao Fx; readiness do PostgreSQL e níveis `READ COMMITTED`/`REPEATABLE READ READ ONLY` validados em integração real.
+- Pendente na Fase 3: repositórios, mapeamentos completos e testes automatizados das constraints em Go.
 
 ---
 

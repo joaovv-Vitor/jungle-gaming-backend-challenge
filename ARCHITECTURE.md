@@ -65,5 +65,8 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - schema inicial para carteiras, transações, ledger, inbox e outbox;
 - constraints diferíveis que exigem correspondência entre saldo, versão, transação processada e ledger;
 - triggers que protegem ledger, identidade/estado terminal das transações e snapshot da outbox.
+- `pgxpool` fixado na versão 5.10.0, validado no startup e fechado pelo lifecycle do Fx;
+- readiness dinâmico que consulta PostgreSQL com timeout, sem afetar liveness;
+- unidade de trabalho com `READ COMMITTED` para operações e `REPEATABLE READ READ ONLY` para reconciliação.
 
-O pool `pgx`, repositórios, Keycloak, SQS e casos de uso transacionais ainda serão acrescentados nas próximas fases. Os health checks atuais representam apenas o processo HTTP; readiness passará a agregar PostgreSQL e SQS quando essas dependências forem conectadas à aplicação.
+Repositórios e mapeamentos PostgreSQL, Keycloak, SQS e casos de uso transacionais ainda serão acrescentados nas próximas fases. O readiness já agrega PostgreSQL e passará a agregar SQS quando essa dependência for conectada.
