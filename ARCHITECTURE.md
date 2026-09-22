@@ -36,6 +36,10 @@ Os repositórios usam SQL explícito e reconstroem agregados pelos construtores 
 
 O banco imporá unicidade de `(provider_id, idempotency_key)` e `(provider_id, external_transaction_id)`. Um SHA-256 do payload de negócio canônico detectará reuso da identidade com conteúdo diferente. Replays reproduzirão o resultado persistido, inclusive o saldo observado no processamento original.
 
+O payload canônico é JSON UTF-8 compacto com chaves em ordem lexicográfica. Ele contém `externalTransactionId`, `gameId`, `kind`, `money` (`amount`, `currency`), `playerId`, `providerId`, `referenceExternalTransactionId` quando presente, `roundId` e `walletId`. O valor monetário é normalizado para duas casas decimais e a moeda para o código de três letras aceito pelo domínio. `Idempotency-Key`, correlação, credenciais e metadados de HTTP/SQS ficam fora do hash. O mesmo construtor será usado pelo adaptador SQS, preservando equivalência entre transportes.
+
+Em `READ COMMITTED`, uma inserção concorrente pode tornar-se visível entre as consultas das duas identidades. Quando isso ocorre, o caso de uso reavalia chave e hash usando a linha vencedora; uma entrega idêntica vira replay, enquanto conteúdo ou chave divergentes continuam sendo conflito. Violações concorrentes dos índices únicos são traduzidas para a mesma avaliação após rollback.
+
 ### Ledger
 
 O ledger será append-only. Reversões criam novos lançamentos e não editam histórico. Constraints, FKs, triggers diferíveis e privilégios da role de runtime protegerão a correspondência entre saldo, transação e lançamento, além de impedir `UPDATE`, `DELETE` e `TRUNCATE`.
@@ -90,5 +94,11 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - verificação JWT via JWKS, middleware de autenticação e autorização por role;
 - caso de uso de abertura de carteira e persistência atômica de `OPENING`, ledger e outbox;
 - endpoints internos de abertura, leitura e ledger com paginação por cursor opaco.
+- caso de uso transacional compartilhável para `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`;
+- idempotência persistente pelas duas identidades, SHA-256 canônico e replay do resultado financeiro histórico;
+- serialização por lock da carteira, ledger e outbox no mesmo commit, inclusive para rejeições auditáveis;
+- referências válidas, reversões únicas e persistência durável de referências ainda ausentes;
+- endpoints autenticados de envio e consulta de transações, sempre isolados pelo provider do token;
+- testes reais de concorrência para 50 duplicatas e duas apostas de `80.00` sobre saldo de `100.00`.
 
-SQS, processamento dos cinco tipos externos e workers ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL e Keycloak e passará a agregar SQS quando essa dependência for conectada.
+SQS, inbox, publicação da outbox e workers de referência ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL e Keycloak e passará a agregar SQS quando essa dependência for conectada.

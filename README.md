@@ -4,7 +4,7 @@ Implementação em andamento do desafio descrito em `teste tecnoco.md`. A arquit
 
 ## Estado atual
 
-O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC e o fluxo autenticado de carteiras. Uma abertura positiva confirma carteira, `OPENING`, ledger e dois eventos de outbox no mesmo commit. SQS e o processamento das operações externas permanecem em implementação.
+O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloak/OIDC, carteiras autenticadas e processamento HTTP idempotente de `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. Carteira, transação, ledger e outbox são confirmados atomicamente. SQS, publicação da outbox e workers de referência permanecem em implementação.
 
 ## Requisitos locais
 
@@ -61,6 +61,49 @@ curl -H "Authorization: Bearer $INTERNAL_TOKEN" 'http://localhost:8080/wallets/W
 ```
 
 O cursor devolvido pelo ledger é opaco e deve ser reenviado sem alterações no parâmetro `cursor`.
+
+### Operações de aposta
+
+Obtenha o token do provider local:
+
+```sh
+curl -sS -X POST http://localhost:8081/realms/wagering/protocol/openid-connect/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode grant_type=client_credentials \
+  --data-urlencode client_id=provider-a \
+  --data-urlencode client_secret=provider-a-local
+```
+
+Copie o `access_token` para `PROVIDER_TOKEN` e envie uma aposta. O `providerId` precisa coincidir com o claim `provider_id` do token:
+
+```sh
+curl -i -X POST http://localhost:8080/wagering/transactions \
+  -H "Authorization: Bearer $PROVIDER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: provider-a:transaction-123' \
+  -H 'X-Correlation-ID: wager-example-1' \
+  -d '{"providerId":"provider-a","externalTransactionId":"transaction-123","playerId":"PLAYER_ID","walletId":"WALLET_ID","roundId":"round-987","gameId":"fortune-chimp","kind":"BET","money":{"amount":"25.00","currency":"BRL"}}'
+```
+
+Repetir o mesmo corpo e a mesma chave retorna a transação original com `idempotentReplay: true`. Consultas também usam a identidade do provider presente no token:
+
+```sh
+curl -H "Authorization: Bearer $PROVIDER_TOKEN" http://localhost:8080/wagering/transactions/TRANSACTION_ID
+curl -H "Authorization: Bearer $PROVIDER_TOKEN" http://localhost:8080/providers/provider-a/wagering/transactions/transaction-123
+```
+
+`REFUND` e `ROLLBACK` exigem `referenceExternalTransactionId`; `WIN` pode fornecê-lo. Referências ainda não recebidas retornam `202` com estado `PENDING_REFERENCE` e ficam agendadas de forma durável.
+
+| Situação | HTTP | Código/estado |
+| --- | ---: | --- |
+| Operação processada ou rejeitada por regra financeira | 200 | `PROCESSED` ou `REJECTED` com `failureCode` |
+| Referência ainda ausente | 202 | `PENDING_REFERENCE` |
+| Token ausente, inválido ou sem role | 401/403 | `UNAUTHORIZED` ou `FORBIDDEN` |
+| Provider do corpo/caminho diferente do token | 403 | `PROVIDER_MISMATCH` |
+| JSON, dinheiro ou chave ausente inválidos | 400 | `INVALID_REQUEST`, `INVALID_MONEY` ou `IDEMPOTENCY_KEY_REQUIRED` |
+| Reuso conflitante de chave ou ID externo | 409 | `IDEMPOTENCY_CONFLICT` ou `EXTERNAL_TRANSACTION_CONFLICT` |
+| Carteira ou transação inexistente | 404 | `WALLET_NOT_FOUND` ou `TRANSACTION_NOT_FOUND` |
+| Falha concorrente transitória | 503 | `TRANSIENT_FAILURE` |
 
 ### Respostas dos endpoints de carteira
 

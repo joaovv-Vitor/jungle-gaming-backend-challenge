@@ -69,6 +69,18 @@ func (r *WagerRepository) FindByProviderExternalID(ctx context.Context, db DBTX,
 	return scanWager(db.QueryRow(ctx, wagerSelect+` WHERE provider_id=$1 AND external_transaction_id=$2`, providerID, externalID))
 }
 
+func (r *WagerRepository) HasProcessedReversal(ctx context.Context, db DBTX, referenceTransactionID string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM wager_transactions
+		WHERE reference_transaction_id=$1 AND status='PROCESSED' AND kind IN ('REFUND','ROLLBACK')
+	)`, referenceTransactionID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("find processed reversal: %w", err)
+	}
+	return exists, nil
+}
+
 const wagerSelect = `SELECT
     id::text, origin, provider_id, external_transaction_id, idempotency_key, payload_hash,
     wallet_id::text, player_id::text, round_id, game_id, kind, status, amount_minor, currency,

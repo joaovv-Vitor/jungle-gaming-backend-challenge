@@ -32,7 +32,9 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 3 concluídas em PostgreSQL real: níveis de isolamento, abertura e débito atômicos, reidratação, rollback, lock de carteira, escrita otimista, saldo não negativo, unicidade, imutabilidade e semântica do ledger, resultado histórico e agenda de referências pendentes.
 - Fase 4 concluída: Keycloak provisionado, validação OIDC/JWT, roles `internal`/`provider`, abertura e consulta de carteira e ledger paginado implementados.
 - Verificações da Fase 4 concluídas: token ausente, inválido e expirado, provider impedido de operar carteiras, abertura positiva atômica, conflito persistente, abertura zero sem registros financeiros e consulta autenticada do ledger.
-- Próxima fase ativa: Fase 5, processamento HTTP e idempotência.
+- Fase 5 concluída: processamento financeiro dos cinco tipos externos, hash canônico, idempotência persistente, locks por carteira e endpoints autenticados de envio e consulta.
+- Verificações da Fase 5 concluídas: vetor SHA-256 estável, regras e referências dos cinco tipos, replay histórico e conflitos, isolamento entre providers, 50 entregas concorrentes distribuídas por três serviços/pools com efeito único, disputa de duas apostas de `80.00` sobre `100.00` por conexões independentes e fluxo HTTP real com Keycloak e PostgreSQL.
+- Próxima fase ativa: Fase 6, SQS e inbox.
 
 ---
 
