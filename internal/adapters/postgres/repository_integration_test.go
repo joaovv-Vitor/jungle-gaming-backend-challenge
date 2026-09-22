@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/ledger"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
@@ -70,7 +71,7 @@ func TestFinancialRepositoriesPersistAndRehydrateMovement(t *testing.T) {
 		if err := wallets.Insert(ctx, tx, account); err != nil {
 			return err
 		}
-		if err := wagers.Insert(ctx, tx, opening); err != nil {
+		if err := wagers.Insert(ctx, tx, opening, nil); err != nil {
 			return err
 		}
 		return entries.Insert(ctx, tx, openingEntry)
@@ -133,7 +134,7 @@ func TestFinancialRepositoriesPersistAndRehydrateMovement(t *testing.T) {
 		if err := wallets.Update(ctx, tx, locked); err != nil {
 			return err
 		}
-		if err := wagers.Insert(ctx, tx, bet); err != nil {
+		if err := wagers.Insert(ctx, tx, bet, nil); err != nil {
 			return err
 		}
 		return entries.Insert(ctx, tx, entry)
@@ -255,6 +256,290 @@ func TestUnitOfWorkRollsBackRepositoryWrites(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("rolled-back wallet lookup error = %v, want %v", err, ErrNotFound)
 	}
+}
+
+func TestPendingReferenceRequiresDurableSchedule(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, integrationDatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	unit := NewUnitOfWork(pool)
+	wallets := NewWalletRepository()
+	wagers := NewWagerRepository()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	walletID := randomUUID(t)
+	playerID := randomUUID(t)
+	account, err := wallet.New(walletID, playerID, mustMoney(t, 0, "BRL"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := wagering.PayloadHash(sha256.Sum256([]byte("pending-reference")))
+	pending, err := wagering.NewExternal(wagering.ExternalParams{
+		ID:                             randomUUID(t),
+		ProviderID:                     "provider-" + randomUUID(t),
+		ExternalTransactionID:          "external-" + randomUUID(t),
+		IdempotencyKey:                 "idempotency-" + randomUUID(t),
+		PayloadHash:                    hash,
+		WalletID:                       walletID,
+		PlayerID:                       playerID,
+		RoundID:                        "round-pending",
+		GameID:                         "game-pending",
+		Kind:                           wagering.KindRefund,
+		Amount:                         mustMoney(t, 1_000, "BRL"),
+		ReferenceExternalTransactionID: "missing-reference",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pending.MarkPendingReference(now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	err = unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := wallets.Insert(ctx, tx, account); err != nil {
+			return err
+		}
+		return wagers.Insert(ctx, tx, pending, nil)
+	})
+	if !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("Insert(pending without schedule) error = %v, want %v", err, ErrInvalidSchedule)
+	}
+
+	schedule := &ReferenceSchedule{
+		NextAttemptAt: now.Add(time.Minute),
+		ExpiresAt:     now.Add(time.Hour),
+	}
+	err = unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := wallets.Insert(ctx, tx, account); err != nil {
+			return err
+		}
+		return wagers.Insert(ctx, tx, pending, schedule)
+	})
+	if err != nil {
+		t.Fatalf("persist scheduled pending reference: %v", err)
+	}
+}
+
+func TestDatabaseRejectsInvalidFinancialSemantics(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, integrationDatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	unit := NewUnitOfWork(pool)
+	wallets := NewWalletRepository()
+	wagers := NewWagerRepository()
+	entries := NewLedgerRepository()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	walletID := randomUUID(t)
+	playerID := randomUUID(t)
+	initial := mustMoney(t, 10_000, "BRL")
+	zero := mustMoney(t, 0, "BRL")
+	account, err := wallet.New(walletID, playerID, initial, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	openingID := randomUUID(t)
+	opening, err := wagering.NewOpening(openingID, walletID, playerID, initial, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	openingEntry, err := ledger.New(ledger.Params{
+		ID: randomUUID(t), WalletID: walletID, TransactionID: openingID,
+		Direction: ledger.DirectionCredit, Amount: initial, BalanceBefore: zero,
+		BalanceAfter: initial, WalletVersion: 1, CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := wallets.Insert(ctx, tx, account); err != nil {
+			return err
+		}
+		if err := wagers.Insert(ctx, tx, opening, nil); err != nil {
+			return err
+		}
+		return entries.Insert(ctx, tx, openingEntry)
+	})
+	if err != nil {
+		t.Fatalf("persist opening fixture: %v", err)
+	}
+
+	amount := mustMoney(t, 2_500, "BRL")
+	err = unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		locked, err := wallets.FindByIDForUpdate(ctx, tx, walletID)
+		if err != nil {
+			return err
+		}
+		before, after, err := locked.Credit(amount, now.Add(time.Second))
+		if err != nil {
+			return err
+		}
+		betID := randomUUID(t)
+		bet, err := newProcessedExternal(t, wagering.KindBet, betID, walletID, playerID, amount, after, now.Add(time.Second))
+		if err != nil {
+			return err
+		}
+		entry, err := ledger.New(ledger.Params{
+			ID: randomUUID(t), WalletID: walletID, TransactionID: betID,
+			Direction: ledger.DirectionCredit, Amount: amount, BalanceBefore: before,
+			BalanceAfter: after, WalletVersion: locked.Version(), CreatedAt: now.Add(time.Second),
+		})
+		if err != nil {
+			return err
+		}
+		if err := wallets.Update(ctx, tx, locked); err != nil {
+			return err
+		}
+		if err := wagers.Insert(ctx, tx, bet, nil); err != nil {
+			return err
+		}
+		return entries.Insert(ctx, tx, entry)
+	})
+	if err == nil {
+		t.Fatal("BET with CREDIT ledger committed, want financial semantics error")
+	}
+
+	err = unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		locked, err := wallets.FindByIDForUpdate(ctx, tx, walletID)
+		if err != nil {
+			return err
+		}
+		before, after, err := locked.Credit(amount, now.Add(2*time.Second))
+		if err != nil {
+			return err
+		}
+		wrongResult := mustMoney(t, after.MinorUnits()+1, "BRL")
+		winID := randomUUID(t)
+		win, err := newProcessedExternal(t, wagering.KindWin, winID, walletID, playerID, amount, wrongResult, now.Add(2*time.Second))
+		if err != nil {
+			return err
+		}
+		entry, err := ledger.New(ledger.Params{
+			ID: randomUUID(t), WalletID: walletID, TransactionID: winID,
+			Direction: ledger.DirectionCredit, Amount: amount, BalanceBefore: before,
+			BalanceAfter: after, WalletVersion: locked.Version(), CreatedAt: now.Add(2 * time.Second),
+		})
+		if err != nil {
+			return err
+		}
+		if err := wallets.Update(ctx, tx, locked); err != nil {
+			return err
+		}
+		if err := wagers.Insert(ctx, tx, win, nil); err != nil {
+			return err
+		}
+		return entries.Insert(ctx, tx, entry)
+	})
+	if err == nil {
+		t.Fatal("wager with divergent historical result committed, want constraint error")
+	}
+}
+
+func TestWalletStoreCreatesOpeningLedgerAndOutboxAtomically(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, integrationDatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	unit := NewUnitOfWork(pool)
+	store := NewWalletStore(
+		unit,
+		NewWalletRepository(),
+		NewWagerRepository(),
+		NewLedgerRepository(),
+		NewOutboxRepository(),
+	)
+	service := applicationwallet.NewService(store)
+	playerID := randomUUID(t)
+	correlationID := "wallet-open-" + randomUUID(t)
+	account, err := service.Open(ctx, applicationwallet.OpenInput{
+		PlayerID: playerID, Initial: mustMoney(t, 10_000, "BRL"), CorrelationID: correlationID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var openings, entries, events int
+	err = pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM wager_transactions WHERE wallet_id=$1 AND kind='OPENING'),
+		(SELECT count(*) FROM wallet_ledger_entries WHERE wallet_id=$1),
+		(SELECT count(*) FROM outbox_events WHERE correlation_id=$2)`,
+		account.ID(), correlationID).Scan(&openings, &entries, &events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openings != 1 || entries != 1 || events != 2 {
+		t.Fatalf("financial records = opening:%d ledger:%d outbox:%d, want 1/1/2", openings, entries, events)
+	}
+	page, err := service.ListLedger(ctx, account.ID(), "", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].WalletVersion() != 1 || page.NextCursor != "" {
+		t.Fatalf("opening ledger page = %+v", page)
+	}
+
+	_, err = service.Open(ctx, applicationwallet.OpenInput{
+		PlayerID: playerID, Initial: mustMoney(t, 10_000, "BRL"), CorrelationID: "duplicate-" + correlationID,
+	})
+	if !errors.Is(err, applicationwallet.ErrWalletAlreadyExists) {
+		t.Fatalf("duplicate Open() error = %v, want %v", err, applicationwallet.ErrWalletAlreadyExists)
+	}
+
+	zeroCorrelationID := "wallet-zero-" + randomUUID(t)
+	zeroAccount, err := service.Open(ctx, applicationwallet.OpenInput{
+		PlayerID: randomUUID(t), Initial: mustMoney(t, 0, "BRL"), CorrelationID: zeroCorrelationID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM wager_transactions WHERE wallet_id=$1),
+		(SELECT count(*) FROM wallet_ledger_entries WHERE wallet_id=$1),
+		(SELECT count(*) FROM outbox_events WHERE correlation_id=$2)`,
+		zeroAccount.ID(), zeroCorrelationID).Scan(&openings, &entries, &events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openings != 0 || entries != 0 || events != 0 {
+		t.Fatalf("zero wallet records = transaction:%d ledger:%d outbox:%d, want 0/0/0", openings, entries, events)
+	}
+}
+
+func newProcessedExternal(
+	t *testing.T,
+	kind wagering.Kind,
+	id, walletID, playerID string,
+	amount, result money.Money,
+	now time.Time,
+) (*wagering.Transaction, error) {
+	t.Helper()
+	externalID := "external-" + randomUUID(t)
+	transaction, err := wagering.NewExternal(wagering.ExternalParams{
+		ID: id, ProviderID: "provider-" + randomUUID(t), ExternalTransactionID: externalID,
+		IdempotencyKey: "idempotency-" + randomUUID(t),
+		PayloadHash:    wagering.PayloadHash(sha256.Sum256([]byte(externalID))),
+		WalletID:       walletID, PlayerID: playerID, RoundID: "round-1", GameID: "game-1",
+		Kind: kind, Amount: amount,
+	}, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := transaction.MarkProcessed(result, now); err != nil {
+		return nil, err
+	}
+	return transaction, nil
 }
 
 func integrationDatabaseURL() string {

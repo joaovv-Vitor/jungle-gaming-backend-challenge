@@ -52,6 +52,8 @@ A inbox deduplica mensagens por consumidor e `messageId`, verificando também o 
 
 O HTTP usará OAuth 2.0/OIDC com Keycloak local e `client_credentials`. O token determina o provider autorizado; valores do corpo nunca concedem autoridade. Endpoints de carteira e reconciliação exigem identidade interna. A fila de entrada aceita apenas um produtor interno confiável, porque `providerId` no payload não autentica o remetente.
 
+O adaptador usa `go-oidc` 3.21.0 para verificar assinatura RS256, emissor, audiência e validade temporal. Em Docker, o emissor público (`localhost:8081`) permanece o valor validado no token, enquanto uma URL JWKS interna (`keycloak:8080`) é configurada separadamente; isso evita desabilitar a validação de issuer apenas para contornar DNS entre host e containers. O claim `provider_id` identifica o provedor e `realm_access.roles` determina as permissões `provider` e `internal`.
+
 ### Composição e encerramento
 
 Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módulos. Recursos registram `OnStart`/`OnStop` no lifecycle. No encerramento, readiness cai primeiro, novas entradas param e o trabalho em andamento recebe prazo antes do fechamento das dependências.
@@ -82,5 +84,11 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - lock de carteira com `FOR NO KEY UPDATE`, atualização com guarda de versão e erros classificáveis de ausência/conflito;
 - mapeamento completo dos agregados financeiros, incluindo nulos e hash binário;
 - testes de integração dos repositórios, commit diferido, rollback e constraints em PostgreSQL real.
+- migration incremental que relaciona tipo da aposta, direção do ledger, referência e resultado financeiro histórico;
+- agenda obrigatória para persistência de `PENDING_REFERENCE`;
+- Keycloak 26.7.3 provisionado com clients de serviço, audiência e roles;
+- verificação JWT via JWKS, middleware de autenticação e autorização por role;
+- caso de uso de abertura de carteira e persistência atômica de `OPENING`, ledger e outbox;
+- endpoints internos de abertura, leitura e ledger com paginação por cursor opaco.
 
-Keycloak, SQS e casos de uso transacionais ainda serão acrescentados nas próximas fases. O readiness já agrega PostgreSQL e passará a agregar SQS quando essa dependência for conectada.
+SQS, processamento dos cinco tipos externos e workers ainda serão acrescentados nas próximas fases. O readiness agrega PostgreSQL e Keycloak e passará a agregar SQS quando essa dependência for conectada.

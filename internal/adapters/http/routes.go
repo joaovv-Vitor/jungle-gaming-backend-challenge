@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/auth"
+	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
 )
 
-func newMux(status *health.Status) *http.ServeMux {
+func newMux(status *health.Status, authentication *auth.Middleware, wallets *applicationwallet.Service) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "up"})
@@ -19,6 +21,7 @@ func newMux(status *health.Status) *http.ServeMux {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
+	registerWalletRoutes(mux, authentication, wallets)
 	return mux
 }
 

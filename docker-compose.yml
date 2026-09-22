@@ -1,4 +1,23 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.3
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_local}
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8081}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+
   postgres:
     image: postgres:18-alpine
     environment:
@@ -28,7 +47,12 @@ services:
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
       APP_SHUTDOWN_TIMEOUT: ${APP_SHUTDOWN_TIMEOUT:-15s}
       APP_DATABASE_URL: postgres://${WAGER_APP_USER:-wager_app}:${WAGER_APP_PASSWORD:-wager_app_local}@postgres:5432/${POSTGRES_DB:-wagering}?sslmode=disable
+      APP_OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8081}/realms/wagering
+      APP_OIDC_JWKS_URL: http://keycloak:8080/realms/wagering/protocol/openid-connect/certs
+      APP_OIDC_AUDIENCE: wager-api
     depends_on:
+      keycloak:
+        condition: service_healthy
       postgres:
         condition: service_healthy
     ports:

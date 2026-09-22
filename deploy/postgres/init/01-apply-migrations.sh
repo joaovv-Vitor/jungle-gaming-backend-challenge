@@ -1,10 +1,12 @@
 #!/bin/sh
 set -eu
 
-psql --set=ON_ERROR_STOP=1 \
-  --username "$POSTGRES_USER" \
-  --dbname "$POSTGRES_DB" \
-  --file /migrations/000001_initial.up.sql
+for migration in /migrations/*.up.sql; do
+  psql --set=ON_ERROR_STOP=1 \
+    --username "$POSTGRES_USER" \
+    --dbname "$POSTGRES_DB" \
+    --file "$migration"
+done
 
 psql --set=ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \

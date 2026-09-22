@@ -29,8 +29,10 @@ Atualizado em 22 de setembro de 2026:
 - Fase 2 concluída: `Money`, `Wallet`, `WagerTransaction`, `WalletLedgerEntry` e os quatro eventos tipados implementados com criação e reidratação separadas e erros classificáveis.
 - Verificações da Fase 2 concluídas: regras de tipos e estados, zero values inválidos, saldo não negativo, moedas incompatíveis, equações do ledger, snapshots de eventos e overflow monetário.
 - Fase 3 concluída: PostgreSQL 18, roles, migrations `up/down`, constraints, índices, triggers, `pgxpool`, unidade de trabalho e repositórios financeiros implementados.
-- Verificações da Fase 3 concluídas em PostgreSQL real: níveis de isolamento, abertura e débito atômicos, reidratação, rollback, lock de carteira, escrita otimista, saldo não negativo, unicidade e imutabilidade do ledger.
-- Próxima fase ativa: Fase 4, autenticação e carteiras.
+- Verificações da Fase 3 concluídas em PostgreSQL real: níveis de isolamento, abertura e débito atômicos, reidratação, rollback, lock de carteira, escrita otimista, saldo não negativo, unicidade, imutabilidade e semântica do ledger, resultado histórico e agenda de referências pendentes.
+- Fase 4 concluída: Keycloak provisionado, validação OIDC/JWT, roles `internal`/`provider`, abertura e consulta de carteira e ledger paginado implementados.
+- Verificações da Fase 4 concluídas: token ausente, inválido e expirado, provider impedido de operar carteiras, abertura positiva atômica, conflito persistente, abertura zero sem registros financeiros e consulta autenticada do ledger.
+- Próxima fase ativa: Fase 5, processamento HTTP e idempotência.
 
 ---
 

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -18,6 +19,10 @@ const (
 	defaultShutdownTimeout   = 15 * time.Second
 	defaultDatabaseURL       = "postgres://wager_app:wager_app_local@localhost:5432/wagering?sslmode=disable"
 	defaultDatabasePing      = 2 * time.Second
+	defaultOIDCIssuer        = "http://localhost:8081/realms/wagering"
+	defaultOIDCJWKSURL       = "http://localhost:8081/realms/wagering/protocol/openid-connect/certs"
+	defaultOIDCAudience      = "wager-api"
+	defaultOIDCPingTimeout   = 2 * time.Second
 )
 
 type Config struct {
@@ -32,6 +37,10 @@ type Config struct {
 	DatabaseMaxConns    int32
 	DatabaseMinConns    int32
 	DatabasePingTimeout time.Duration
+	OIDCIssuer          string
+	OIDCJWKSURL         string
+	OIDCAudience        string
+	OIDCPingTimeout     time.Duration
 }
 
 func Load() (Config, error) {
@@ -47,6 +56,10 @@ func Load() (Config, error) {
 		DatabaseMaxConns:    20,
 		DatabaseMinConns:    2,
 		DatabasePingTimeout: defaultDatabasePing,
+		OIDCIssuer:          envOrDefault("APP_OIDC_ISSUER", defaultOIDCIssuer),
+		OIDCJWKSURL:         envOrDefault("APP_OIDC_JWKS_URL", defaultOIDCJWKSURL),
+		OIDCAudience:        envOrDefault("APP_OIDC_AUDIENCE", defaultOIDCAudience),
+		OIDCPingTimeout:     defaultOIDCPingTimeout,
 	}
 
 	var err error
@@ -66,6 +79,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.DatabasePingTimeout, err = duration("APP_DATABASE_PING_TIMEOUT", cfg.DatabasePingTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.OIDCPingTimeout, err = duration("APP_OIDC_PING_TIMEOUT", cfg.OIDCPingTimeout); err != nil {
 		return Config{}, err
 	}
 	if cfg.DatabaseMaxConns, err = int32Value("APP_DATABASE_MAX_CONNS", cfg.DatabaseMaxConns); err != nil {
@@ -90,6 +106,23 @@ func (c Config) validate() error {
 	}
 	if c.DatabaseMinConns < 0 || c.DatabaseMaxConns < 1 || c.DatabaseMinConns > c.DatabaseMaxConns {
 		return errors.New("database pool sizes must satisfy 0 <= min <= max")
+	}
+	if err := validHTTPURL("APP_OIDC_ISSUER", c.OIDCIssuer); err != nil {
+		return err
+	}
+	if err := validHTTPURL("APP_OIDC_JWKS_URL", c.OIDCJWKSURL); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.OIDCAudience) == "" {
+		return errors.New("APP_OIDC_AUDIENCE must not be empty")
+	}
+	return nil
+}
+
+func validHTTPURL(name, value string) error {
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("%s must be an absolute HTTP URL", name)
 	}
 	return nil
 }

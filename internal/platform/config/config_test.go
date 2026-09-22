@@ -56,6 +56,16 @@ func TestLoadRejectsInvalidDatabasePool(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidOIDCConfiguration(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("APP_OIDC_ISSUER", "keycloak/realms/wagering")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want OIDC URL validation error")
+	}
+}
+
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_HTTP_ADDR", defaultHTTPAddress)
@@ -69,4 +79,8 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("APP_DATABASE_MAX_CONNS", "20")
 	t.Setenv("APP_DATABASE_MIN_CONNS", "2")
 	t.Setenv("APP_DATABASE_PING_TIMEOUT", defaultDatabasePing.String())
+	t.Setenv("APP_OIDC_ISSUER", defaultOIDCIssuer)
+	t.Setenv("APP_OIDC_JWKS_URL", defaultOIDCJWKSURL)
+	t.Setenv("APP_OIDC_AUDIENCE", defaultOIDCAudience)
+	t.Setenv("APP_OIDC_PING_TIMEOUT", defaultOIDCPingTimeout.String())
 }

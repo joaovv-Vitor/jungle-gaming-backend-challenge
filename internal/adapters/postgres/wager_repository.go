@@ -16,7 +16,14 @@ type WagerRepository struct{}
 
 func NewWagerRepository() *WagerRepository { return &WagerRepository{} }
 
-func (r *WagerRepository) Insert(ctx context.Context, db DBTX, entity *wagering.Transaction) error {
+func (r *WagerRepository) Insert(ctx context.Context, db DBTX, entity *wagering.Transaction, schedule *ReferenceSchedule) error {
+	if entity.Status() == wagering.StatusPendingReference {
+		if schedule == nil || !schedule.valid() {
+			return ErrInvalidSchedule
+		}
+	} else if schedule != nil {
+		return ErrInvalidSchedule
+	}
 	result, hasResult := entity.ResultBalance()
 	var resultMinor any
 	if hasResult {
@@ -27,18 +34,23 @@ func (r *WagerRepository) Insert(ctx context.Context, db DBTX, entity *wagering.
 		hash := entity.PayloadHash()
 		payloadHash = hash[:]
 	}
+	var nextAttemptAt, expiresAt any
+	if schedule != nil {
+		nextAttemptAt = schedule.NextAttemptAt.UTC()
+		expiresAt = schedule.ExpiresAt.UTC()
+	}
 	_, err := db.Exec(ctx, `
         INSERT INTO wager_transactions(
             id, origin, provider_id, external_transaction_id, idempotency_key, payload_hash,
             wallet_id, player_id, round_id, game_id, kind, status, amount_minor, currency,
             reference_external_transaction_id, reference_transaction_id, failure_code,
-            result_balance_minor, created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+            result_balance_minor, next_attempt_at, expires_at, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
 		entity.ID(), entity.Origin(), nullString(entity.ProviderID()), nullString(entity.ExternalTransactionID()),
 		nullString(entity.IdempotencyKey()), payloadHash, entity.WalletID(), entity.PlayerID(), nullString(entity.RoundID()),
 		nullString(entity.GameID()), entity.Kind(), entity.Status(), entity.Amount().MinorUnits(), entity.Amount().Currency().Code(),
 		nullString(entity.ReferenceExternalTransactionID()), nullString(entity.ReferenceTransactionID()),
-		nullString(string(entity.FailureCode())), resultMinor, entity.CreatedAt(), entity.UpdatedAt())
+		nullString(string(entity.FailureCode())), resultMinor, nextAttemptAt, expiresAt, entity.CreatedAt(), entity.UpdatedAt())
 	if err != nil {
 		return fmt.Errorf("insert wager transaction: %w", err)
 	}
