@@ -28,10 +28,9 @@ Atualizado em 22 de setembro de 2026:
 - Fase 1 aceita: imagem multi-stage construída, liveness/readiness validados pela porta publicada e graceful shutdown confirmado após `SIGTERM`.
 - Fase 2 concluída: `Money`, `Wallet`, `WagerTransaction`, `WalletLedgerEntry` e os quatro eventos tipados implementados com criação e reidratação separadas e erros classificáveis.
 - Verificações da Fase 2 concluídas: regras de tipos e estados, zero values inválidos, saldo não negativo, moedas incompatíveis, equações do ledger, snapshots de eventos e overflow monetário.
-- Próxima fase ativa: Fase 3, banco e migrations.
-- Fase 3 em andamento: PostgreSQL 18, roles, migration inicial, constraints, índices e triggers implementados; `up/down` e proteções da role de runtime validados em banco real.
-- Fase 3 avançada: `pgxpool` e unidade de trabalho integrados ao Fx; readiness do PostgreSQL e níveis `READ COMMITTED`/`REPEATABLE READ READ ONLY` validados em integração real.
-- Pendente na Fase 3: repositórios, mapeamentos completos e testes automatizados das constraints em Go.
+- Fase 3 concluída: PostgreSQL 18, roles, migrations `up/down`, constraints, índices, triggers, `pgxpool`, unidade de trabalho e repositórios financeiros implementados.
+- Verificações da Fase 3 concluídas em PostgreSQL real: níveis de isolamento, abertura e débito atômicos, reidratação, rollback, lock de carteira, escrita otimista, saldo não negativo, unicidade e imutabilidade do ledger.
+- Próxima fase ativa: Fase 4, autenticação e carteiras.
 
 ---
 

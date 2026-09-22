@@ -22,6 +22,16 @@ Operações financeiras usarão transação `READ COMMITTED` e lock pessimista p
 
 Todos os fluxos seguirão a ordem de locks definida na seção 11.2 do plano. Deadlocks e falhas de serialização provocam retry limitado da transação inteira; não viram rejeição de negócio.
 
+O caso de uso delimita a transação por meio de `UnitOfWork`; os repositórios não abrem nem confirmam transações. Eles recebem a mesma interface `DBTX`, satisfeita por `pgx.Tx`, para que carteira, transação de aposta e ledger participem do mesmo commit. Consultas de reconciliação usam uma unidade de trabalho separada em `REPEATABLE READ READ ONLY`.
+
+Além do lock pessimista, o `UPDATE` da carteira compara a versão anterior e exige exatamente uma linha afetada. Isso detecta uso incorreto de um agregado obsoleto sem substituir a serialização por carteira.
+
+### Mapeamento PostgreSQL
+
+Os repositórios usam SQL explícito e reconstroem agregados pelos construtores de reidratação do domínio. `Money` é persistido como `BIGINT` em unidades mínimas mais `CHAR(3)` para moeda; não há conversão intermediária por ponto flutuante. UUIDs são lidos como texto, campos opcionais usam tipos anuláveis do `pgx` e o hash canônico é armazenado como `BYTEA` de 32 bytes.
+
+`WalletRepository` concentra leitura simples, leitura com `FOR NO KEY UPDATE`, inserção e atualização versionada. `WagerRepository` oferece as três identidades necessárias para replay e conflito: ID interno, `(provider_id, idempotency_key)` e `(provider_id, external_transaction_id)`. `LedgerRepository` oferece somente inserção, coerente com o ledger append-only; o banco também bloqueia mutações diretas.
+
 ### Idempotência
 
 O banco imporá unicidade de `(provider_id, idempotency_key)` e `(provider_id, external_transaction_id)`. Um SHA-256 do payload de negócio canônico detectará reuso da identidade com conteúdo diferente. Replays reproduzirão o resultado persistido, inclusive o saldo observado no processamento original.
@@ -68,5 +78,9 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - `pgxpool` fixado na versão 5.10.0, validado no startup e fechado pelo lifecycle do Fx;
 - readiness dinâmico que consulta PostgreSQL com timeout, sem afetar liveness;
 - unidade de trabalho com `READ COMMITTED` para operações e `REPEATABLE READ READ ONLY` para reconciliação.
+- repositórios PostgreSQL explícitos para carteiras, transações e ledger, fornecidos pelo módulo Fx;
+- lock de carteira com `FOR NO KEY UPDATE`, atualização com guarda de versão e erros classificáveis de ausência/conflito;
+- mapeamento completo dos agregados financeiros, incluindo nulos e hash binário;
+- testes de integração dos repositórios, commit diferido, rollback e constraints em PostgreSQL real.
 
-Repositórios e mapeamentos PostgreSQL, Keycloak, SQS e casos de uso transacionais ainda serão acrescentados nas próximas fases. O readiness já agrega PostgreSQL e passará a agregar SQS quando essa dependência for conectada.
+Keycloak, SQS e casos de uso transacionais ainda serão acrescentados nas próximas fases. O readiness já agrega PostgreSQL e passará a agregar SQS quando essa dependência for conectada.
