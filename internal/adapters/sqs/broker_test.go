@@ -52,10 +52,21 @@ func TestBrokerReceiveDefaultsInvalidReceiveCountToFirstDelivery(t *testing.T) {
 	}
 }
 
+func TestBrokerReadsApproximateDeadLetterQueueDepth(t *testing.T) {
+	client := &brokerTestClient{attributesOutput: &awssqs.GetQueueAttributesOutput{Attributes: map[string]string{
+		string(types.QueueAttributeNameApproximateNumberOfMessages): "3",
+	}}}
+	count, err := (&Broker{client: client}).ApproximateMessages(context.Background(), "queue-url")
+	if err != nil || count != 3 {
+		t.Fatalf("queue depth = %d, error=%v", count, err)
+	}
+}
+
 type brokerTestClient struct {
-	receiveInput  *awssqs.ReceiveMessageInput
-	receiveOutput *awssqs.ReceiveMessageOutput
-	sendInput     *awssqs.SendMessageInput
+	receiveInput     *awssqs.ReceiveMessageInput
+	receiveOutput    *awssqs.ReceiveMessageOutput
+	sendInput        *awssqs.SendMessageInput
+	attributesOutput *awssqs.GetQueueAttributesOutput
 }
 
 func TestBrokerSendUsesStableEventIdentity(t *testing.T) {
@@ -80,6 +91,9 @@ func (c *brokerTestClient) GetQueueUrl(context.Context, *awssqs.GetQueueUrlInput
 }
 
 func (c *brokerTestClient) GetQueueAttributes(context.Context, *awssqs.GetQueueAttributesInput, ...func(*awssqs.Options)) (*awssqs.GetQueueAttributesOutput, error) {
+	if c.attributesOutput != nil {
+		return c.attributesOutput, nil
+	}
 	return nil, errors.New("unexpected GetQueueAttributes")
 }
 

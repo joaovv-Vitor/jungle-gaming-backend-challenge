@@ -15,6 +15,18 @@ type OutboxStore struct{ unit *UnitOfWork }
 
 func NewOutboxStore(unit *UnitOfWork) *OutboxStore { return &OutboxStore{unit: unit} }
 
+func (s *OutboxStore) Stats(ctx context.Context) (application.Stats, error) {
+	var stats application.Stats
+	err := s.unit.pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(GREATEST(0,
+			EXTRACT(EPOCH FROM (clock_timestamp()-MIN(occurred_at)))), 0)::double precision
+		FROM outbox_events WHERE published_at IS NULL`).Scan(&stats.Pending, &stats.OldestAgeSeconds)
+	if err != nil {
+		return application.Stats{}, fmt.Errorf("read outbox backlog: %w", err)
+	}
+	return stats, nil
+}
+
 func (s *OutboxStore) Claim(ctx context.Context, lease time.Duration) (*application.Event, error) {
 	if lease <= 0 {
 		return nil, application.ErrInvalidClaim
@@ -35,15 +47,15 @@ func (s *OutboxStore) Claim(ctx context.Context, lease time.Duration) (*applicat
 				    locked_until=clock_timestamp() + ($1::bigint * interval '1 millisecond'),
 				    attempts=attempts+1
 				FROM candidate WHERE outbox.event_id=candidate.event_id
-				RETURNING outbox.event_id, outbox.aggregate_id, outbox.event_type,
+				RETURNING outbox.event_id, outbox.aggregate_id, outbox.event_type, outbox.correlation_id,
 				          outbox.payload, outbox.lease_token, outbox.attempts
 			)
 			SELECT claimed.event_id::text,
 			       CASE WHEN claimed.event_type='WalletBalanceChanged'
 			            THEN claimed.aggregate_id::text ELSE wager.wallet_id::text END,
-			       claimed.payload, claimed.lease_token::text, claimed.attempts
+			       claimed.correlation_id, claimed.payload, claimed.lease_token::text, claimed.attempts
 			FROM claimed LEFT JOIN wager_transactions AS wager ON wager.id=claimed.aggregate_id`,
-			lease.Milliseconds()).Scan(&claimed.ID, &claimed.GroupID, &claimed.Payload, &claimed.Token, &claimed.Attempts)
+			lease.Milliseconds()).Scan(&claimed.ID, &claimed.GroupID, &claimed.CorrelationID, &claimed.Payload, &claimed.Token, &claimed.Attempts)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

@@ -2,24 +2,29 @@ package httpadapter
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/auth"
 	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
 	domain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
 	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
-func registerWagerRoutes(mux *http.ServeMux, authentication *auth.Middleware, wagers *application.Service) {
-	handler := wagerHandler{wagers: wagers}
+func registerWagerRoutes(mux *http.ServeMux, authentication *auth.Middleware, wagers *application.Service, instrumentation *metrics.Metrics, logger *slog.Logger) {
+	handler := wagerHandler{wagers: wagers, metrics: instrumentation, logger: logger}
 	mux.Handle("POST /wagering/transactions", authentication.RequireRole("provider", http.HandlerFunc(handler.submit)))
 	mux.Handle("GET /wagering/transactions/{transactionId}", authentication.RequireRole("provider", http.HandlerFunc(handler.findByID)))
 	mux.Handle("GET /providers/{providerId}/wagering/transactions/{externalTransactionId}", authentication.RequireRole("provider", http.HandlerFunc(handler.findByExternalID)))
 }
 
 type wagerHandler struct {
-	wagers *application.Service
+	wagers  *application.Service
+	metrics *metrics.Metrics
+	logger  *slog.Logger
 }
 
 type submitWagerRequest struct {
@@ -67,6 +72,7 @@ func (h wagerHandler) submit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	started := time.Now()
 	result, err := h.wagers.Submit(r.Context(), application.SubmitInput{
 		ProviderID: request.ProviderID, ExternalTransactionID: request.ExternalTransactionID,
 		IdempotencyKey: idempotencyKey, WalletID: request.WalletID, PlayerID: request.PlayerID,
@@ -75,10 +81,32 @@ func (h wagerHandler) submit(w http.ResponseWriter, r *http.Request) {
 		CorrelationID:                  correlationID,
 	})
 	if err != nil {
+		code := wagerErrorMetric(err)
+		h.metrics.RecordWagerError("http", code)
+		h.logger.Warn("wager submission failed", "correlationId", correlationID, "reason", code)
 		writeWagerError(w, err)
 		return
 	}
+	h.metrics.RecordWager("http", string(result.Transaction.Kind()), string(result.Transaction.Status()),
+		string(result.Transaction.FailureCode()), result.Replay, time.Since(started))
+	h.logger.Info("wager submission handled", "correlationId", correlationID,
+		"transactionId", result.Transaction.ID(), "status", result.Transaction.Status(), "replay", result.Replay)
 	writeWagerResponse(w, result.Transaction, result.Replay)
+}
+
+func wagerErrorMetric(err error) string {
+	switch {
+	case errors.Is(err, application.ErrIdempotencyConflict):
+		return "idempotency_conflict"
+	case errors.Is(err, application.ErrExternalIDConflict):
+		return "external_id_conflict"
+	case errors.Is(err, application.ErrConcurrentWrite), errors.Is(err, application.ErrIdentityRace):
+		return "concurrent_write"
+	case errors.Is(err, application.ErrInvalidInput):
+		return "invalid"
+	default:
+		return "error"
+	}
 }
 
 func (h wagerHandler) findByID(w http.ResponseWriter, r *http.Request) {

@@ -116,5 +116,8 @@ Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módu
 - publisher concorrente da outbox com reivindicações curtas, lease/token no PostgreSQL, retry limitado com jitter e confirmação somente após aceitação pelo SQS;
 - publicação FIFO por carteira e `eventId` estável para deduplicação no consumidor, com recuperação após falha entre envio e confirmação;
 - testes de concorrência e recuperação em PostgreSQL real, além do fluxo completo até a fila de eventos do LocalStack.
+- reconciliação autenticada com transação `REPEATABLE READ READ ONLY`, soma `NUMERIC` no PostgreSQL e checagem explícita de overflow antes de converter para `Money`;
+- métricas de resultados confirmados, replays, filas, retries, divergência e dependências com labels controlados, além de logs de correlação sem payloads ou credenciais;
+- `/metrics` restrito ao papel interno; readiness inclui PostgreSQL, Keycloak, filas de entrada, saída e DLQ.
 
-Reconciliação e observabilidade final ainda serão acrescentadas nas próximas fases. O readiness agrega PostgreSQL, Keycloak e SQS.
+Os cenários distribuídos de hardening e a revisão final de entrega seguem nas próximas fases.

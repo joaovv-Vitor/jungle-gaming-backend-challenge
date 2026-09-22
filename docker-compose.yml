@@ -71,6 +71,7 @@ services:
       APP_SQS_ACCESS_KEY_ID: ${APP_SQS_ACCESS_KEY_ID:-test}
       APP_SQS_SECRET_ACCESS_KEY: ${APP_SQS_SECRET_ACCESS_KEY:-test}
       APP_SQS_INPUT_QUEUE: ${APP_SQS_INPUT_QUEUE:-wager-transactions.fifo}
+      APP_SQS_DLQ_QUEUE: ${APP_SQS_DLQ_QUEUE:-wager-transactions-dlq.fifo}
       APP_SQS_OUTPUT_QUEUE: ${APP_SQS_OUTPUT_QUEUE:-wager-events.fifo}
       APP_SQS_CONSUMER_NAME: ${APP_SQS_CONSUMER_NAME:-wager-transactions}
       APP_SQS_LONG_POLL: ${APP_SQS_LONG_POLL:-20s}

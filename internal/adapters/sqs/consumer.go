@@ -10,6 +10,7 @@ import (
 	"go.uber.org/fx"
 
 	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/ingestion"
+	applicationwagering "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
@@ -18,6 +19,7 @@ import (
 type messageBroker interface {
 	QueueURL(context.Context, string) (string, error)
 	Ping(context.Context, string) error
+	ApproximateMessages(context.Context, string) (int64, error)
 	Receive(context.Context, string, int32, int32, int32) ([]Message, error)
 	Delete(context.Context, string, string) error
 	Release(context.Context, string, string) error
@@ -36,6 +38,7 @@ type Consumer struct {
 
 	mu         sync.RWMutex
 	queueURL   string
+	dlqURL     string
 	pollCancel context.CancelFunc
 	workCancel context.CancelFunc
 	loopDone   chan struct{}
@@ -83,7 +86,21 @@ func (c *Consumer) check(parent context.Context) error {
 			return err
 		}
 	}
-	return c.broker.Ping(ctx, queueURL)
+	if err := c.broker.Ping(ctx, queueURL); err != nil {
+		return err
+	}
+	if c.cfg.SQSDLQQueue == "" {
+		return nil
+	}
+	dlqURL := c.currentDLQURL()
+	if dlqURL == "" {
+		var err error
+		dlqURL, err = c.broker.QueueURL(ctx, c.cfg.SQSDLQQueue)
+		if err != nil {
+			return err
+		}
+	}
+	return c.broker.Ping(ctx, dlqURL)
 }
 
 func (c *Consumer) start(ctx context.Context) error {
@@ -94,8 +111,19 @@ func (c *Consumer) start(ctx context.Context) error {
 	if err := c.broker.Ping(ctx, queueURL); err != nil {
 		return err
 	}
+	var dlqURL string
+	if c.cfg.SQSDLQQueue != "" {
+		dlqURL, err = c.broker.QueueURL(ctx, c.cfg.SQSDLQQueue)
+		if err != nil {
+			return err
+		}
+		if err := c.broker.Ping(ctx, dlqURL); err != nil {
+			return err
+		}
+	}
 	c.mu.Lock()
 	c.queueURL = queueURL
+	c.dlqURL = dlqURL
 	pollCtx, pollCancel := context.WithCancel(context.Background())
 	workCtx, workCancel := context.WithCancel(context.Background())
 	c.pollCancel = pollCancel
@@ -109,7 +137,12 @@ func (c *Consumer) start(ctx context.Context) error {
 
 func (c *Consumer) run(pollCtx, workCtx context.Context) {
 	defer close(c.loopDone)
+	var lastDLQCheck time.Time
 	for {
+		if c.currentDLQURL() != "" && time.Since(lastDLQCheck) >= 15*time.Second {
+			c.observeDLQ(pollCtx)
+			lastDLQCheck = time.Now()
+		}
 		batch, ok := c.availableBatch(pollCtx)
 		if !ok {
 			return
@@ -149,6 +182,19 @@ func (c *Consumer) run(pollCtx, workCtx context.Context) {
 	}
 }
 
+func (c *Consumer) observeDLQ(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, c.cfg.SQSPingTimeout)
+	defer cancel()
+	count, err := c.broker.ApproximateMessages(ctx, c.currentDLQURL())
+	if err != nil {
+		if parent.Err() == nil {
+			c.logger.Error("SQS DLQ depth query failed", "error", err)
+		}
+		return
+	}
+	c.instrumentation.SetDLQDepth(count)
+}
+
 func (c *Consumer) availableBatch(ctx context.Context) (int32, bool) {
 	available := cap(c.semaphore) - len(c.semaphore)
 	if available == 0 {
@@ -183,12 +229,28 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 	defer cancel()
 	result, err := c.ingestion.Consume(ctx, c.cfg.SQSConsumerName, message)
 	if err != nil {
-		c.logger.Error("SQS message processing failed", "brokerMessageId", received.ID, "messageId", message.ID, "error", err)
+		metricCode := "error"
+		switch {
+		case errors.Is(err, application.ErrMessageConflict):
+			metricCode = "message_conflict"
+		case errors.Is(err, applicationwagering.ErrIdempotencyConflict):
+			metricCode = "idempotency_conflict"
+		case errors.Is(err, applicationwagering.ErrExternalIDConflict):
+			metricCode = "external_id_conflict"
+		case errors.Is(err, applicationwagering.ErrConcurrentWrite), errors.Is(err, applicationwagering.ErrIdentityRace):
+			metricCode = "concurrent_write"
+		}
+		c.instrumentation.RecordWagerError("sqs", metricCode)
+		c.logger.Error("SQS message processing failed", "brokerMessageId", received.ID, "messageId", message.ID,
+			"correlationId", message.Input.CorrelationID, "error", err)
 		if ctx.Err() != nil {
 			c.release(received)
 		}
 		return
 	}
+	c.instrumentation.RecordWager("sqs", string(result.WagerResult.Transaction.Kind()),
+		string(result.WagerResult.Transaction.Status()), string(result.WagerResult.Transaction.FailureCode()),
+		result.Duplicate || result.WagerResult.Replay, time.Since(startedAt))
 	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), c.cfg.SQSPingTimeout)
 	defer deleteCancel()
 	if err := c.broker.Delete(deleteCtx, c.currentQueueURL(), received.ReceiptHandle); err != nil {
@@ -200,7 +262,9 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 	if result.Duplicate || result.WagerResult.Replay {
 		metricResult = metrics.SQSResultReplay
 	}
-	c.logger.Info("SQS message processed", "brokerMessageId", received.ID, "messageId", message.ID, "transactionId", result.WagerResult.Transaction.ID(), "duplicate", result.Duplicate || result.WagerResult.Replay)
+	c.logger.Info("SQS message processed", "brokerMessageId", received.ID, "messageId", message.ID,
+		"correlationId", message.Input.CorrelationID, "transactionId", result.WagerResult.Transaction.ID(),
+		"duplicate", result.Duplicate || result.WagerResult.Replay)
 }
 
 func (c *Consumer) release(received Message) {
@@ -212,6 +276,8 @@ func (c *Consumer) release(received Message) {
 }
 
 func (c *Consumer) stop(ctx context.Context) error {
+	started := time.Now()
+	defer func() { c.instrumentation.ObserveShutdown("sqs", time.Since(started)) }()
 	c.mu.RLock()
 	pollCancel, workCancel, loopDone := c.pollCancel, c.workCancel, c.loopDone
 	c.mu.RUnlock()
@@ -252,4 +318,10 @@ func (c *Consumer) currentQueueURL() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.queueURL
+}
+
+func (c *Consumer) currentDLQURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dlqURL
 }

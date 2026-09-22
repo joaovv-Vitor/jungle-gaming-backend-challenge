@@ -2,9 +2,12 @@ package httpadapter
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/auth"
+	applicationreconciliation "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reconciliation"
 	applicationwagering "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
 	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
@@ -17,21 +20,27 @@ func newMux(
 	authentication *auth.Middleware,
 	wallets *applicationwallet.Service,
 	wagers *applicationwagering.Service,
+	reconciler *applicationreconciliation.Service,
+	logger *slog.Logger,
 ) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", instrumentation.Handler())
+	mux.Handle("GET /metrics", authentication.RequireRole("internal", instrumentation.Handler()))
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "up"})
 	})
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := status.Ready(r.Context()); err != nil {
+			var dependency *health.DependencyError
+			if errors.As(err, &dependency) {
+				instrumentation.RecordDependencyFailure(dependency.Name)
+			}
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	registerWalletRoutes(mux, authentication, wallets)
-	registerWagerRoutes(mux, authentication, wagers)
+	registerWalletRoutes(mux, authentication, wallets, reconciler, instrumentation, logger)
+	registerWagerRoutes(mux, authentication, wagers, instrumentation, logger)
 	return mux
 }
 

@@ -41,6 +41,8 @@ func (s *serviceStore) Retry(_ context.Context, _ Event, next time.Time, reason 
 	return nil
 }
 
+func (s *serviceStore) Stats(context.Context) (Stats, error) { return Stats{}, nil }
+
 type servicePublisher struct {
 	ids []string
 	err error
@@ -80,7 +82,7 @@ func TestUnconfirmedSendCanBeRepublishedWithSameEventID(t *testing.T) {
 	if _, err := service.ProcessOne(context.Background()); err == nil {
 		t.Fatal("first confirmation unexpectedly succeeded")
 	}
-	if outcome, err := service.ProcessOne(context.Background()); err != nil || outcome != OutcomePublished {
+	if outcome, err := service.ProcessOne(context.Background()); err != nil || outcome != OutcomeRepublished {
 		t.Fatalf("republication = %s, error=%v", outcome, err)
 	}
 	if len(publisher.ids) != 2 || publisher.ids[0] != "event-1" || publisher.ids[1] != "event-1" || store.confirmed != 2 {

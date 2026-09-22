@@ -26,6 +26,7 @@ const (
 	defaultSQSEndpoint       = "http://localhost:4566"
 	defaultSQSRegion         = "us-east-1"
 	defaultSQSInputQueue     = "wager-transactions.fifo"
+	defaultSQSDLQQueue       = "wager-transactions-dlq.fifo"
 	defaultSQSOutputQueue    = "wager-events.fifo"
 	defaultSQSConsumerName   = "wager-transactions"
 	defaultSQSLongPoll       = 20 * time.Second
@@ -62,6 +63,7 @@ type Config struct {
 	SQSAccessKeyID      string
 	SQSSecretAccessKey  string
 	SQSInputQueue       string
+	SQSDLQQueue         string
 	SQSOutputQueue      string
 	SQSConsumerName     string
 	SQSLongPoll         time.Duration
@@ -103,6 +105,7 @@ func Load() (Config, error) {
 		SQSAccessKeyID:      envOrDefault("APP_SQS_ACCESS_KEY_ID", "test"),
 		SQSSecretAccessKey:  envOrDefault("APP_SQS_SECRET_ACCESS_KEY", "test"),
 		SQSInputQueue:       envOrDefault("APP_SQS_INPUT_QUEUE", defaultSQSInputQueue),
+		SQSDLQQueue:         envOrDefault("APP_SQS_DLQ_QUEUE", defaultSQSDLQQueue),
 		SQSOutputQueue:      envOrDefault("APP_SQS_OUTPUT_QUEUE", defaultSQSOutputQueue),
 		SQSConsumerName:     envOrDefault("APP_SQS_CONSUMER_NAME", defaultSQSConsumerName),
 		SQSLongPoll:         defaultSQSLongPoll,

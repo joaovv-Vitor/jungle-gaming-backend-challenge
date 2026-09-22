@@ -42,7 +42,9 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 7 concluídas em PostgreSQL real: resolução após chegada tardia, referência ainda pendente, referência rejeitada/incompatível, expiração, lease assumido por outro pool e token obsoleto incapaz de alterar a agenda. O bootstrap completo iniciou dois workers e respondeu ao readiness.
 - Fase 8 concluída: publisher concorrente da outbox, reivindicação por `FOR UPDATE SKIP LOCKED`, lease e token persistidos, retry com backoff e jitter, envio FIFO com `eventId` estável e confirmação condicional no PostgreSQL.
 - Verificações da Fase 8 concluídas: dois publishers/pools disputando eventos, recuperação de lease abandonado, rejeição de token antigo, falha antes do envio, falha após envio e antes da confirmação, reenvio com o mesmo `eventId` e publicação real na fila FIFO do LocalStack.
-- Próxima etapa: Fase 9, reconciliação e observabilidade final.
+- Fase 9 implementada: endpoint interno de reconciliação em snapshot somente leitura, cálculo monetário sem perda de precisão, detecção de overflow e divergências, logs de correlação e métricas de transações, workers, filas, readiness e shutdown.
+- Verificações da Fase 9 incluem saldo com e sem lançamentos, diferença negativa, overflow, visibilidade antes/depois de commit financeiro, autorização da rota, recuperação do readiness e labels de métricas limitados.
+- Próxima etapa: Fase 10, cenários distribuídos e hardening.
 
 ---
 

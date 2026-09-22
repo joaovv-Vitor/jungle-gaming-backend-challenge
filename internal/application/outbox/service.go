@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"math/rand"
 	"time"
 
@@ -12,17 +13,24 @@ import (
 var ErrInvalidClaim = errors.New("invalid outbox claim")
 
 type Event struct {
-	ID       string
-	GroupID  string
-	Payload  []byte
-	Token    string
-	Attempts int
+	ID            string
+	GroupID       string
+	CorrelationID string
+	Payload       []byte
+	Token         string
+	Attempts      int
 }
 
 type Store interface {
 	Claim(context.Context, time.Duration) (*Event, error)
 	Confirm(context.Context, Event) error
 	Retry(context.Context, Event, time.Time, string) error
+	Stats(context.Context) (Stats, error)
+}
+
+type Stats struct {
+	Pending          int64
+	OldestAgeSeconds float64
 }
 
 type Publisher interface {
@@ -33,9 +41,10 @@ type Publisher interface {
 type Outcome string
 
 const (
-	OutcomeIdle      Outcome = "idle"
-	OutcomePublished Outcome = "published"
-	OutcomeRetry     Outcome = "retry"
+	OutcomeIdle        Outcome = "idle"
+	OutcomePublished   Outcome = "published"
+	OutcomeRepublished Outcome = "republished"
+	OutcomeRetry       Outcome = "retry"
 )
 
 type Service struct {
@@ -43,6 +52,13 @@ type Service struct {
 	publisher Publisher
 	lease     time.Duration
 	jitter    func(time.Duration) time.Duration
+	logger    *slog.Logger
+}
+
+func NewLoggedService(store Store, publisher Publisher, cfg config.Config, logger *slog.Logger) *Service {
+	service := NewService(store, publisher, cfg)
+	service.logger = logger
+	return service
 }
 
 func NewService(store Store, publisher Publisher, cfg config.Config) *Service {
@@ -53,6 +69,7 @@ func NewService(store Store, publisher Publisher, cfg config.Config) *Service {
 }
 
 func (s *Service) CheckDestination(ctx context.Context) error { return s.publisher.Check(ctx) }
+func (s *Service) Stats(ctx context.Context) (Stats, error)   { return s.store.Stats(ctx) }
 
 // ProcessOne publishes only after a separately committed claim. A crash after
 // SendMessage and before Confirm may redeliver the same event ID.
@@ -78,6 +95,13 @@ func (s *Service) ProcessOne(ctx context.Context) (Outcome, error) {
 	}
 	if err := s.store.Confirm(ctx, *event); err != nil {
 		return "", err
+	}
+	if s.logger != nil {
+		s.logger.Info("outbox event confirmed", "eventId", event.ID, "correlationId", event.CorrelationID,
+			"attempts", event.Attempts)
+	}
+	if event.Attempts > 1 {
+		return OutcomeRepublished, nil
 	}
 	return OutcomePublished, nil
 }

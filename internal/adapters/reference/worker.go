@@ -10,18 +10,20 @@ import (
 
 	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reference"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
 type Worker struct {
 	service *application.Service
 	cfg     config.Config
 	logger  *slog.Logger
+	metrics *metrics.Metrics
 	cancel  context.CancelFunc
 	done    sync.WaitGroup
 }
 
-func NewWorker(lifecycle fx.Lifecycle, service *application.Service, cfg config.Config, logger *slog.Logger) *Worker {
-	worker := &Worker{service: service, cfg: cfg, logger: logger}
+func NewWorker(lifecycle fx.Lifecycle, service *application.Service, cfg config.Config, logger *slog.Logger, instrumentation *metrics.Metrics) *Worker {
+	worker := &Worker{service: service, cfg: cfg, logger: logger, metrics: instrumentation}
 	lifecycle.Append(fx.Hook{OnStart: worker.start, OnStop: worker.stop})
 	return worker
 }
@@ -38,6 +40,8 @@ func (w *Worker) start(context.Context) error {
 }
 
 func (w *Worker) stop(ctx context.Context) error {
+	started := time.Now()
+	defer func() { w.metrics.ObserveShutdown("reference", time.Since(started)) }()
 	if w.cancel == nil {
 		return nil
 	}
@@ -62,6 +66,13 @@ func (w *Worker) run(parent context.Context) {
 		ctx, cancel := context.WithTimeout(parent, w.cfg.ReferenceProcess)
 		outcome, err := w.service.ProcessOne(ctx)
 		cancel()
+		if parent.Err() == nil && outcome != application.OutcomeIdle {
+			result := string(outcome)
+			if err != nil {
+				result = "error"
+			}
+			w.metrics.RecordReferenceAttempt(result)
+		}
 		if err != nil && parent.Err() == nil {
 			w.logger.Error("reference processing failed", "error", err)
 		}

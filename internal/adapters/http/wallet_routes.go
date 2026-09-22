@@ -4,25 +4,48 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/auth"
+	applicationreconciliation "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reconciliation"
 	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
 	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
-func registerWalletRoutes(mux *http.ServeMux, authentication *auth.Middleware, wallets *applicationwallet.Service) {
-	handler := walletHandler{wallets: wallets}
+func registerWalletRoutes(mux *http.ServeMux, authentication *auth.Middleware, wallets *applicationwallet.Service, reconciler *applicationreconciliation.Service, instrumentation *metrics.Metrics, logger *slog.Logger) {
+	handler := walletHandler{wallets: wallets, reconciler: reconciler, metrics: instrumentation, logger: logger}
 	mux.Handle("POST /wallets", authentication.RequireRole("internal", http.HandlerFunc(handler.open)))
 	mux.Handle("GET /wallets/{walletId}", authentication.RequireRole("internal", http.HandlerFunc(handler.find)))
 	mux.Handle("GET /wallets/{walletId}/ledger", authentication.RequireRole("internal", http.HandlerFunc(handler.listLedger)))
+	mux.Handle("POST /wallets/{walletId}/reconciliation", authentication.RequireRole("internal", http.HandlerFunc(handler.reconcile)))
 }
 
 type walletHandler struct {
-	wallets *applicationwallet.Service
+	wallets    *applicationwallet.Service
+	reconciler *applicationreconciliation.Service
+	metrics    *metrics.Metrics
+	logger     *slog.Logger
+}
+
+func (h walletHandler) reconcile(w http.ResponseWriter, r *http.Request) {
+	result, err := h.reconciler.Reconcile(r.Context(), r.PathValue("walletId"))
+	switch {
+	case errors.Is(err, applicationreconciliation.ErrInvalidWalletID):
+		writeAPIError(w, http.StatusBadRequest, "INVALID_WALLET_ID")
+	case errors.Is(err, applicationreconciliation.ErrWalletNotFound):
+		writeAPIError(w, http.StatusNotFound, "WALLET_NOT_FOUND")
+	case errors.Is(err, applicationreconciliation.ErrOverflow):
+		writeAPIError(w, http.StatusInternalServerError, "RECONCILIATION_OVERFLOW")
+	case err != nil:
+		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR")
+	default:
+		writeJSON(w, http.StatusOK, result)
+	}
 }
 
 type moneyRequest struct {
@@ -54,6 +77,7 @@ func (h walletHandler) open(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	started := time.Now()
 	account, err := h.wallets.Open(r.Context(), applicationwallet.OpenInput{
 		PlayerID: request.PlayerID, Initial: initial, CorrelationID: correlationID,
 	})
@@ -69,6 +93,11 @@ func (h walletHandler) open(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR")
 		return
 	}
+	if initial.IsPositive() {
+		h.metrics.RecordWager("internal", "OPENING", "PROCESSED", "", false, time.Since(started))
+	}
+	h.logger.Info("wallet opened", "walletId", account.ID(), "correlationId", correlationID,
+		"opening", initial.IsPositive())
 	w.Header().Set("Location", "/wallets/"+account.ID())
 	writeJSON(w, http.StatusCreated, walletResponse(account))
 }

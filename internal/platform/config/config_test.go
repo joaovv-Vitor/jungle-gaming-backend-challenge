@@ -117,6 +117,7 @@ func clearConfigEnvironment(t *testing.T) {
 	t.Setenv("APP_SQS_ACCESS_KEY_ID", "test")
 	t.Setenv("APP_SQS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("APP_SQS_INPUT_QUEUE", defaultSQSInputQueue)
+	t.Setenv("APP_SQS_DLQ_QUEUE", defaultSQSDLQQueue)
 	t.Setenv("APP_SQS_OUTPUT_QUEUE", defaultSQSOutputQueue)
 	t.Setenv("APP_SQS_CONSUMER_NAME", defaultSQSConsumerName)
 	t.Setenv("APP_SQS_LONG_POLL", defaultSQSLongPoll.String())

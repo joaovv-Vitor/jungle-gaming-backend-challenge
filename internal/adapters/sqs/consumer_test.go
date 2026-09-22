@@ -149,8 +149,9 @@ type consumerTestBroker struct {
 	releaseCalls int
 }
 
-func (*consumerTestBroker) QueueURL(context.Context, string) (string, error) { return "queue-url", nil }
-func (*consumerTestBroker) Ping(context.Context, string) error               { return nil }
+func (*consumerTestBroker) QueueURL(context.Context, string) (string, error)           { return "queue-url", nil }
+func (*consumerTestBroker) Ping(context.Context, string) error                         { return nil }
+func (*consumerTestBroker) ApproximateMessages(context.Context, string) (int64, error) { return 0, nil }
 func (*consumerTestBroker) Receive(context.Context, string, int32, int32, int32) ([]Message, error) {
 	return nil, nil
 }

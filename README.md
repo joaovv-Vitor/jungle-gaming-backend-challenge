@@ -23,7 +23,6 @@ Verifique o processo:
 ```sh
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
-curl http://localhost:8080/metrics
 ```
 
 Com Docker:
@@ -59,9 +58,13 @@ Consultas internas:
 ```sh
 curl -H "Authorization: Bearer $INTERNAL_TOKEN" http://localhost:8080/wallets/WALLET_ID
 curl -H "Authorization: Bearer $INTERNAL_TOKEN" 'http://localhost:8080/wallets/WALLET_ID/ledger?limit=50'
+curl -X POST -H "Authorization: Bearer $INTERNAL_TOKEN" http://localhost:8080/wallets/WALLET_ID/reconciliation
+curl -H "Authorization: Bearer $INTERNAL_TOKEN" http://localhost:8080/metrics
 ```
 
 O cursor devolvido pelo ledger é opaco e deve ser reenviado sem alterações no parâmetro `cursor`.
+
+A reconciliação usa uma visão consistente e compara o saldo armazenado à soma dos créditos menos débitos do ledger, incluindo `OPENING`. Retorna `storedBalance`, `calculatedBalance`, `difference` (armazenado menos calculado), `consistent` e `checkedEntries`, sem alterar a carteira. Somatórios ou diferenças fora do intervalo monetário retornam `500` com `RECONCILIATION_OVERFLOW`; divergências dentro do intervalo aparecem na resposta, no log e na métrica. A rota aceita somente o papel `internal`; UUID inválido retorna `400` e carteira ausente retorna `404`.
 
 ### Operações de aposta
 
@@ -115,7 +118,7 @@ Eventos financeiros são gravados na outbox no mesmo commit da operação e publ
 
 O publisher usa `APP_SQS_OUTPUT_QUEUE` (padrão `wager-events.fifo`), `APP_OUTBOX_WORKERS` (`2`), `APP_OUTBOX_POLL_INTERVAL` (`500ms`), `APP_OUTBOX_PROCESSING_TIMEOUT` (`10s`) e `APP_OUTBOX_LEASE` (`30s`). Falhas mantêm o evento na outbox, com `attempts`, `next_attempt_at` e `last_error` consultáveis no PostgreSQL; não há descarte após um número fixo de tentativas. Configure o lease acima do timeout de processamento.
 
-As métricas `wager_sqs_consumer_messages_received_total`, `wager_sqs_consumer_messages_processed_total` e `wager_sqs_consumer_message_processing_duration_seconds` permitem acompanhar primeiras entregas, reentregas, resultados e duração. Seus labels são limitados a classificações controladas e nunca carregam IDs financeiros ou de mensagens.
+O endpoint `/metrics` exige token `internal`. As métricas cobrem resultados financeiros após commit, replays, rejeições, latência, entregas SQS, tamanho aproximado da DLQ, tentativas de referências, backlog e idade da outbox, publicações e republicações, falhas de readiness, divergências de reconciliação e duração do shutdown. Os labels usam categorias limitadas; IDs financeiros e de mensagens ficam apenas em logs estruturados. A fila de saída também participa do readiness. A DLQ monitorada usa `APP_SQS_DLQ_QUEUE` (padrão `wager-transactions-dlq.fifo`).
 
 | Situação | HTTP | Código/estado |
 | --- | ---: | --- |
@@ -183,4 +186,4 @@ go test -tags=integration ./internal/adapters/auth
 go test -tags=integration ./internal/adapters/sqs
 ```
 
-Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final.
+Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. Para evitar disputa pelas fixtures de referência e outbox, pare apenas o app durante essa suíte (`docker compose stop app`) e religue-o depois (`docker compose start app`). A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final. O cenário de divergência da reconciliação usa a role administrativa local para alterar somente a carteira criada pelo teste e restaura seu saldo; em outra configuração, informe `APP_DATABASE_ADMIN_URL`.

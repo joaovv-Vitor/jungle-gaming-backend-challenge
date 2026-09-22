@@ -72,6 +72,24 @@ func (b *Broker) Ping(ctx context.Context, queueURL string) error {
 	return nil
 }
 
+func (b *Broker) ApproximateMessages(ctx context.Context, queueURL string) (int64, error) {
+	result, err := b.client.GetQueueAttributes(ctx, &awssqs.GetQueueAttributesInput{
+		QueueUrl:       aws.String(queueURL),
+		AttributeNames: []types.QueueAttributeName{types.QueueAttributeNameApproximateNumberOfMessages},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("read SQS queue depth: %w", err)
+	}
+	if result == nil {
+		return 0, fmt.Errorf("read SQS queue depth: empty response")
+	}
+	count, err := strconv.ParseInt(result.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessages)], 10, 64)
+	if err != nil || count < 0 {
+		return 0, fmt.Errorf("read SQS queue depth: invalid response")
+	}
+	return count, nil
+}
+
 func (b *Broker) Receive(ctx context.Context, queueURL string, batch, waitSeconds, visibilitySeconds int32) ([]Message, error) {
 	result, err := b.client.ReceiveMessage(ctx, &awssqs.ReceiveMessageInput{
 		QueueUrl:                    aws.String(queueURL),

@@ -12,17 +12,19 @@ import (
 
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
 
 type server struct {
 	http            *http.Server
 	status          *health.Status
 	logger          *slog.Logger
+	metrics         *metrics.Metrics
 	shutdownTimeout time.Duration
 	listener        net.Listener
 }
 
-func newServer(cfg config.Config, mux *http.ServeMux, status *health.Status, logger *slog.Logger) *server {
+func newServer(cfg config.Config, mux *http.ServeMux, status *health.Status, logger *slog.Logger, instrumentation *metrics.Metrics) *server {
 	return &server{
 		http: &http.Server{
 			Addr:              cfg.HTTPAddress,
@@ -34,6 +36,7 @@ func newServer(cfg config.Config, mux *http.ServeMux, status *health.Status, log
 		},
 		status:          status,
 		logger:          logger,
+		metrics:         instrumentation,
 		shutdownTimeout: cfg.ShutdownTimeout,
 	}
 }
@@ -65,6 +68,8 @@ func (s *server) start(_ context.Context) error {
 }
 
 func (s *server) stop(ctx context.Context) error {
+	started := time.Now()
+	defer func() { s.metrics.ObserveShutdown("http", time.Since(started)) }()
 	s.status.SetReady(false)
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, s.shutdownTimeout)
