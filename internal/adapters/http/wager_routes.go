@@ -102,6 +102,8 @@ func wagerErrorMetric(err error) string {
 		return "external_id_conflict"
 	case errors.Is(err, application.ErrConcurrentWrite), errors.Is(err, application.ErrIdentityRace):
 		return "concurrent_write"
+	case isTransientDependencyError(err):
+		return "dependency_unavailable"
 	case errors.Is(err, application.ErrInvalidInput):
 		return "invalid"
 	default:
@@ -179,6 +181,6 @@ func writeWagerError(w http.ResponseWriter, err error) {
 	case errors.Is(err, application.ErrConcurrentWrite), errors.Is(err, application.ErrIdentityRace):
 		writeAPIError(w, http.StatusServiceUnavailable, "TRANSIENT_FAILURE")
 	default:
-		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR")
+		writeDependencyOrInternalError(w, err)
 	}
 }

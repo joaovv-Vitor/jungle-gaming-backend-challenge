@@ -45,7 +45,8 @@ Atualizado em 22 de setembro de 2026:
 - Fase 9 implementada: endpoint interno de reconciliação em snapshot somente leitura, cálculo monetário sem perda de precisão, detecção de overflow e divergências, logs de correlação e métricas de transações, workers, filas, readiness e shutdown.
 - Verificações da Fase 9 incluem saldo com e sem lançamentos, diferença negativa, overflow, visibilidade antes/depois de commit financeiro, autorização da rota, recuperação do readiness e labels de métricas limitados.
 - Fase 10 em andamento: teste de integração sobe três processos reais do binário com PIDs, portas e pools distintos; confirma a disputa de duas apostas, 50 entregas HTTP idênticas, progresso de uma carteira independente enquanto outra aguarda um lock observado no PostgreSQL, encerramento por SIGTERM e replay após reinício completo. A verificação final compara saldo, versão, ledger e contagem de eventos da outbox.
-- Próxima etapa: completar a matriz de falhas temporárias de PostgreSQL/SQS, revisar timeouts e planos de consulta/índices antes da documentação de entrega.
+- Falhas temporárias da Fase 10 verificadas com proxies locais isolados: perda de conexão PostgreSQL derruba apenas o readiness, responde `503 TRANSIENT_FAILURE` sem confirmar resultado e permite retry pela mesma identidade após recuperação; perda temporária do SQS preserva o commit financeiro na outbox e publica os eventos depois da volta do broker. Liveness permaneceu disponível e o saldo final foi conferido contra o ledger. O teste não interrompe containers compartilhados.
+- Próxima etapa: revisar timeouts e planos de consulta/índices, além das lacunas restantes da matriz obrigatória, antes da documentação de entrega.
 
 ---
 

@@ -129,7 +129,7 @@ O endpoint `/metrics` exige token `internal`. As métricas cobrem resultados fin
 | JSON, dinheiro ou chave ausente inválidos | 400 | `INVALID_REQUEST`, `INVALID_MONEY` ou `IDEMPOTENCY_KEY_REQUIRED` |
 | Reuso conflitante de chave ou ID externo | 409 | `IDEMPOTENCY_CONFLICT` ou `EXTERNAL_TRANSACTION_CONFLICT` |
 | Carteira ou transação inexistente | 404 | `WALLET_NOT_FOUND` ou `TRANSACTION_NOT_FOUND` |
-| Falha concorrente transitória | 503 | `TRANSIENT_FAILURE` |
+| Falha concorrente ou de dependência transitória | 503 | `TRANSIENT_FAILURE`; repetir com a mesma identidade |
 
 ### Respostas dos endpoints de carteira
 
@@ -140,6 +140,7 @@ O endpoint `/metrics` exige token `internal`. As métricas cobrem resultados fin
 | JSON, dinheiro, UUID ou paginação inválidos | 400 | `INVALID_REQUEST`, `INVALID_MONEY`, `INVALID_WALLET_ID` ou `INVALID_PAGINATION` |
 | Carteira inexistente | 404 | `WALLET_NOT_FOUND` |
 | Jogador e moeda já possuem carteira | 409 | `WALLET_ALREADY_EXISTS` |
+| Banco temporariamente indisponível | 503 | `TRANSIENT_FAILURE` |
 | Falha inesperada | 500 | `INTERNAL_ERROR` |
 
 ## PostgreSQL e migrations
@@ -185,6 +186,7 @@ go test -tags=integration ./internal/adapters/postgres
 go test -tags=integration ./internal/adapters/auth
 go test -tags=integration ./internal/adapters/sqs
 go test -tags=integration -run TestThreeProcessesSerializeAndReplayAfterRestart -v ./internal/bootstrap
+go test -tags=integration -run TestTemporaryPostgresAndSQSOutagesRecover -v ./internal/bootstrap
 ```
 
-Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. Para evitar disputa pelas fixtures de referência e outbox, pare apenas o app durante as suítes PostgreSQL/SQS (`docker compose stop app`) e religue-o depois (`docker compose start app`). O teste `internal/bootstrap` constrói o binário e inicia três processos adicionais em portas livres; pode rodar com o app do Compose ativo e registra seus PIDs com `-v`. Ele exercita concorrência, lock entre carteiras e replay depois de reiniciar todas as três instâncias, sem parar PostgreSQL, Keycloak ou LocalStack. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final. O cenário de divergência da reconciliação usa a role administrativa local para alterar somente a carteira criada pelo teste e restaura seu saldo; em outra configuração, informe `APP_DATABASE_ADMIN_URL`.
+Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. Para evitar disputa pelas fixtures de referência e outbox, pare apenas o app durante as suítes PostgreSQL/SQS (`docker compose stop app`) e religue-o depois (`docker compose start app`). O teste multiprocesso `internal/bootstrap` constrói o binário e inicia três processos adicionais em portas livres; pode rodar com o app do Compose ativo e registra seus PIDs com `-v`. Ele exercita concorrência, lock entre carteiras e replay depois de reiniciar todas as três instâncias. O teste de indisponibilidade usa uma instância própria e proxies de falha locais para PostgreSQL/SQS; não para os containers, verifica readiness/liveness e a publicação da outbox após recuperação. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final. O cenário de divergência da reconciliação usa a role administrativa local para alterar somente a carteira criada pelo teste e restaura seu saldo; em outra configuração, informe `APP_DATABASE_ADMIN_URL`.

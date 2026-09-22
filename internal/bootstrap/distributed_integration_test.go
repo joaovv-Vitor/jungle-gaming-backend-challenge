@@ -272,7 +272,7 @@ type serverProcess struct {
 	port int
 }
 
-func startServer(t *testing.T, ctx context.Context, bin string, port, index int) *serverProcess {
+func startServer(t *testing.T, ctx context.Context, bin string, port, index int, overrides ...string) *serverProcess {
 	t.Helper()
 	log, err := os.Create(filepath.Join(filepath.Dir(bin), fmt.Sprintf("server-%d-%d.log", index, port)))
 	if err != nil {
@@ -287,6 +287,7 @@ func startServer(t *testing.T, ctx context.Context, bin string, port, index int)
 		"APP_SQS_ENDPOINT="+envOr("APP_SQS_ENDPOINT", "http://localhost:4566"),
 		"APP_DATABASE_MIN_CONNS=1", "APP_REFERENCE_WORKERS=1", "APP_OUTBOX_WORKERS=1",
 		"APP_SQS_LONG_POLL=1s", "APP_SQS_SHUTDOWN_TIMEOUT=5s")
+	cmd.Env = append(cmd.Env, overrides...)
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		log.Close()

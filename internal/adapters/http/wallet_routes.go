@@ -42,7 +42,7 @@ func (h walletHandler) reconcile(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, applicationreconciliation.ErrOverflow):
 		writeAPIError(w, http.StatusInternalServerError, "RECONCILIATION_OVERFLOW")
 	case err != nil:
-		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR")
+		writeDependencyOrInternalError(w, err)
 	default:
 		writeJSON(w, http.StatusOK, result)
 	}
@@ -90,7 +90,7 @@ func (h walletHandler) open(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusBadRequest, "INVALID_REQUEST")
 			return
 		}
-		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR")
+		writeDependencyOrInternalError(w, err)
 		return
 	}
 	if initial.IsPositive() {
@@ -113,7 +113,7 @@ func (h walletHandler) find(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusBadRequest, "INVALID_WALLET_ID")
 			return
 		}
-		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR")
+		writeDependencyOrInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, walletResponse(account))
@@ -139,7 +139,7 @@ func (h walletHandler) listLedger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "INTERNAL_ERROR")
+		writeDependencyOrInternalError(w, err)
 		return
 	}
 	type entryResponse struct {
