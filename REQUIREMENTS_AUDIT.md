@@ -1,11 +1,11 @@
 # Auditoria dos requisitos
 
-Revisão da matriz da seção 24 de `IMPLEMENTATION_PLAN.md` em 23/09/2026. **Coberto** significa que há teste automatizado diretamente relacionado; **parcial** significa que falta ao menos um cenário pedido pela matriz; **não demonstrado** significa que não há ambiente capaz de provar a propriedade. A comprovação de políticas IAM efetivas fica fora do escopo de execução local deste teste técnico; essa limitação não impede o encerramento da Fase 10. Esta auditoria não substitui a execução dos comandos abaixo em um checkout limpo.
+Revisão da matriz da seção 24 de `IMPLEMENTATION_PLAN.md` em 23/09/2026. **Coberto** significa que há teste automatizado diretamente relacionado; **parcial** significa que falta ao menos um cenário pedido pela matriz; **não demonstrado** significa que não há ambiente capaz de provar a propriedade. O teste local de políticas do MiniStack comprova autorização por identidade declarada, mas não autenticação criptográfica: o emulador não verifica assinaturas SigV4. Esta auditoria não substitui a execução dos comandos abaixo em um checkout limpo.
 
 | Requisito | Estado | Evidência existente e lacuna |
 | --- | --- | --- |
 | §2, §13: autenticação e isolamento | Coberto | `TestRealKeycloakAuthorizationHasNoUnauthorizedFinancialEffects` usa tokens reais A/B e confere ausência de efeitos em PostgreSQL; `TestKeycloakIssuedTokenIsRejectedAfterExpiry` cria um realm temporário, verifica um token real recém-emitido e confirma sua rejeição após o `exp` assinado pelo IdP. |
-| §2, §10: políticas do broker | Não demonstrado localmente | O adaptador aceita a cadeia padrão de credenciais AWS, sem exigir chaves estáticas ou endpoint local. `TestIAMPolicyTemplatesUseLeastPrivilegeQueueActions` verifica localmente as ações e recursos exatos dos templates em `deploy/aws/`, mas não prova enforcement. `TestAWSIAMQueuePermissions` pode verificar três perfis IAM e filas FIFO isoladas; sem `IAM_TEST_*`, registra `SKIP`. O LocalStack Community aceitou `GetQueueUrl` com credenciais fictícias e não prova negação. O enunciado exige a integração SQS local e o controle por políticas do broker, mas não exige uma conta AWS real; a execução em AWS é opcional e fora do escopo deste teste técnico. |
+| §2, §10: políticas do broker | Parcial | `TestIAMPolicyTemplatesUseLeastPrivilegeQueueActions` confere os templates. `docker-compose.iam.yml` executa MiniStack com `AUTH=true`; `scripts/verify_local_sqs_policies.sh` aplica as políticas reais e exige permissões positivas e sete negações `AccessDenied` para app, produtor e identidade sem acesso. O LocalStack Community da integração funcional não aplica IAM. O MiniStack identifica a access key, mas não valida a assinatura SigV4, então a autenticidade do segredo permanece sem demonstração local. Não é necessário usar uma conta AWS para cumprir a execução local do teste técnico. |
 | §4: stack, Fx e migrations | Coberto | Build, bootstrap e Compose verificados; `TestMigrationsUpDownUpInDisposableSchema` aplica todas as migrations, reverte em ordem inversa e reaplica em schema PostgreSQL exclusivo. |
 | §5, §6.1: dinheiro | Coberto | `internal/domain/money/money_test.go`: decimal, JSON, moeda, sinal e overflow; persistência `BIGINT` verificada nos testes PostgreSQL. |
 | §6: domínio e reidratação | Coberto | Testes de `wallet`, `wagering`, `ledger` e `event` exercitam zero values, transições e reidratação. |
@@ -26,7 +26,7 @@ Revisão da matriz da seção 24 de `IMPLEMENTATION_PLAN.md` em 23/09/2026. **Co
 | §11: quatro eventos | Coberto | `TestFourEventContractsReachSQSFromFinancialOperations` exercita OPENING, BET, LOSS, rejeição e referência pendente; compara os sete snapshots da outbox às mensagens reais na FIFO, valida payloads e causação e confirma publicação. |
 | §12: observabilidade | Coberto | Readiness/liveness, métricas e recuperação são exercitados. O teste HTTP com Keycloak real examina o log do processo; testes dos workers SQS, referência e outbox injetam erros com marcador sensível e verificam categorias seguras. A outbox persiste apenas `publish_<categoria>` em `last_error`. |
 | §13: integração e race | Coberto | Suítes com PostgreSQL, Keycloak, LocalStack e três processos existem; executar com `-race` antes de cada entrega. |
-| §15: entrega | Coberto | Um ensaio anterior em checkout Git temporário limpo confirmou build, readiness, migrations `1,2,3`, filas e autenticação real. Após a migration 4, outro projeto Compose construído da árvore de trabalho atual iniciou com volume novo, readiness `200` e migrations `1,2,3,4`; stack e volume foram removidos. A matriz completa de integração com `-race`, `go test -race ./...` e `go vet ./...` passaram após as mudanças. |
+| §15: entrega | Coberto | Um snapshot Git temporário das alterações atuais foi clonado em checkout limpo. A partir dele, Compose construiu o app e iniciou um volume novo com readiness `200`, migrations `1,2,3,4` e três filas. Tokens reais criaram carteira (`201`) e tiveram acesso de provider negado (`403`). `go test -race -count=1 ./...`, `go vet ./...`, a matriz completa de integração com `-race` e o ensaio IAM local no MiniStack passaram. Stacks, redes e volume descartáveis foram removidos. |
 
 ## Reprodução
 
@@ -41,13 +41,21 @@ go test -race -tags=integration -p 1 ./internal/adapters/postgres ./internal/ada
 docker compose start app
 ```
 
+Para a verificação local das políticas do broker, execute separadamente:
+
+```sh
+docker compose -f docker-compose.iam.yml -p wager-iam-local up -d --wait
+docker compose -f docker-compose.iam.yml -p wager-iam-local exec -T ministack sh /verification/verify.sh
+docker compose -f docker-compose.iam.yml -p wager-iam-local down -v
+```
+
 A suíte `internal/bootstrap` pode rodar com o app do Compose ativo em geral, mas o cenário de reinício de referência deve rodar com o app parado para que apenas seus processos assumam as pendências. Os testes de integração exigem portas publicadas e serviços inicializados. Uma execução bem-sucedida não fecha as lacunas descritas na tabela.
 
 ## Fronteira de confiança do SQS
 
 Provedores externos não publicam diretamente na fila compartilhada: usam o HTTP autenticado. Somente um serviço interno de ingestão confiável recebe permissão de `SendMessage` na entrada. O aplicativo recebe `ReceiveMessage`/`DeleteMessage` na entrada, leitura de atributos da DLQ e `SendMessage` na saída. Substitua `REGION`/`ACCOUNT_ID` nos templates e vincule cada política a uma role IAM distinta. IAM identity policy não substitui revisão de queue policy, SCPs ou teste de acesso efetivo no ambiente alvo. O `providerId` do corpo SQS não autentica a origem.
 
-`TestTransientFailureDefersRedeliveryInSQS` confirmou no LocalStack que uma falha transitória atrasa a reentrega por aproximadamente cinco segundos. O teste técnico não pede conta AWS real. A integração SQS local e os modelos de políticas estão presentes, mas o LocalStack Community não comprova negação de acesso por identidade do broker; esse ponto permanece uma limitação documentada.
+`TestTransientFailureDefersRedeliveryInSQS` confirmou no LocalStack que uma falha transitória atrasa a reentrega por aproximadamente cinco segundos. O MiniStack com `AUTH=true` demonstrou as negações das políticas declaradas, sem conta AWS real. Como ele não valida a assinatura SigV4, essa evidência de autorização não prova que o remetente conhece o segredo da access key.
 
 No LocalStack Community atual, um `awslocal sqs get-queue-url --queue-name wager-transactions.fifo` com `AWS_ACCESS_KEY_ID=untrusted-test` e `AWS_SECRET_ACCESS_KEY=untrusted-test` retornou a URL. O teste local dos templates impede ampliações acidentais das permissões declaradas, mas este ambiente não atende à evidência de acesso indevido negado. Não use os templates para alegar enforcement local. A [documentação de configuração do LocalStack](https://github.com/localstack/localstack-docs/blob/main/src/content/docs/aws/customization/configuration-options.md) identifica o enforcement de IAM como recurso Pro.
 
