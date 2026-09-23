@@ -4,6 +4,7 @@ package sqsadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -28,6 +29,60 @@ import (
 	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
+
+func TestTransientFailureDefersRedeliveryInSQS(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client := integrationSQSClient(t, ctx)
+	suffix := integrationSuffix(t)
+	queueName := "wager-transient-retry-" + suffix + ".fifo"
+	queueURL := createIntegrationQueue(t, client, queueName, fifoAttributes())
+	sendIntegrationMessage(t, ctx, client, queueURL, "transient", "transient-"+suffix, consumerTestMessage)
+
+	cfg := integrationConsumerConfig(queueName)
+	broker, err := NewBroker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, err := broker.Receive(ctx, queueURL, 1, 1, 30)
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("initial receive: messages=%d error=%v", len(messages), err)
+	}
+	if messages[0].ReceiveCount != 1 {
+		t.Fatalf("initial receive count = %d, want 1", messages[0].ReceiveCount)
+	}
+	consumer := newConsumer(broker, &consumerTestIngester{err: errors.New("temporary database failure")},
+		cfg, discardLogger(), metrics.New())
+	consumer.queueURL = queueURL
+	started := time.Now()
+	consumer.handle(ctx, messages[0])
+
+	tooEarly, err := broker.Receive(ctx, queueURL, 1, 0, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tooEarly) != 0 {
+		t.Fatal("transiently failed message was redelivered before the visibility delay")
+	}
+
+	for ctx.Err() == nil {
+		redelivered, err := broker.Receive(ctx, queueURL, 1, 1, 30)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(redelivered) == 0 {
+			continue
+		}
+		if redelivered[0].ID != messages[0].ID || redelivered[0].ReceiveCount != 2 {
+			t.Fatalf("redelivery = %+v, want original message with receive count 2", redelivered[0])
+		}
+		if elapsed := time.Since(started); elapsed < 4*time.Second {
+			t.Fatalf("message redelivered after %s, want approximately 5 seconds", elapsed)
+		}
+		return
+	}
+	t.Fatalf("transiently failed message was not redelivered: %v", ctx.Err())
+}
 
 func TestConsumerRedrivesInvalidMessageToDLQ(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)

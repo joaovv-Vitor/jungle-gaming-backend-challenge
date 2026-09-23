@@ -24,6 +24,7 @@ type messageBroker interface {
 	Receive(context.Context, string, int32, int32, int32) ([]Message, error)
 	Delete(context.Context, string, string) error
 	Release(context.Context, string, string) error
+	ChangeVisibility(context.Context, string, string, int32) error
 }
 
 type messageIngester interface {
@@ -246,6 +247,8 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 			"correlationId", message.Input.CorrelationID, "reason", metricCode, "cause", safeerror.Reason(err))
 		if ctx.Err() != nil {
 			c.release(received)
+		} else if retryableProcessingError(err) {
+			c.deferRetry(received)
 		}
 		return
 	}
@@ -266,6 +269,35 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 	c.logger.Info("SQS message processed", "brokerMessageId", received.ID, "messageId", message.ID,
 		"correlationId", message.Input.CorrelationID, "transactionId", result.WagerResult.Transaction.ID(),
 		"duplicate", result.Duplicate || result.WagerResult.Replay)
+}
+
+func retryableProcessingError(err error) bool {
+	return !errors.Is(err, application.ErrMessageConflict) &&
+		!errors.Is(err, applicationwagering.ErrIdempotencyConflict) &&
+		!errors.Is(err, applicationwagering.ErrExternalIDConflict) &&
+		!errors.Is(err, applicationwagering.ErrInvalidInput) &&
+		!errors.Is(err, applicationwagering.ErrWalletMismatch) &&
+		!errors.Is(err, applicationwagering.ErrWalletNotFound)
+}
+
+func retryVisibilitySeconds(receiveCount int) int32 {
+	seconds := int32(5)
+	for attempt := 1; attempt < receiveCount && seconds < 300; attempt++ {
+		seconds *= 2
+		if seconds > 300 {
+			seconds = 300
+		}
+	}
+	return seconds
+}
+
+func (c *Consumer) deferRetry(received Message) {
+	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.SQSPingTimeout)
+	defer cancel()
+	seconds := retryVisibilitySeconds(received.ReceiveCount)
+	if err := c.broker.ChangeVisibility(ctx, c.currentQueueURL(), received.ReceiptHandle, seconds); err != nil {
+		c.logger.Warn("failed to defer SQS message retry", "brokerMessageId", received.ID, "reason", safeerror.Reason(err))
+	}
 }
 
 func (c *Consumer) release(received Message) {

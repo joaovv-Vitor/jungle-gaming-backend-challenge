@@ -449,6 +449,52 @@ func TestDatabaseRejectsInvalidFinancialSemantics(t *testing.T) {
 	}
 }
 
+func TestRuntimeRoleRejectsLedgerThatStartsFromInventedBalance(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, integrationDatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	walletID, playerID, transactionID, entryID := randomUUID(t), randomUUID(t), randomUUID(t), randomUUID(t)
+	now := time.Now().UTC()
+	if _, err := tx.Exec(ctx, `INSERT INTO wallets(id, player_id, currency, balance_minor, version, created_at, updated_at)
+		VALUES ($1, $2, 'BRL', 0, 1, $3, $3)`, walletID, playerID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO wager_transactions(
+		id, origin, provider_id, external_transaction_id, idempotency_key, payload_hash,
+		wallet_id, player_id, round_id, game_id, kind, status, amount_minor, currency,
+		result_balance_minor, created_at, updated_at)
+		VALUES ($1, 'EXTERNAL', 'continuity-test', $6, $6, $2,
+			$3, $4, 'round', 'game', 'WIN', 'PROCESSED', 5000, 'BRL', 10000, $5, $5)`,
+		transactionID, make([]byte, 32), walletID, playerID, now, transactionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE wallets SET balance_minor=10000, version=2, updated_at=$2 WHERE id=$1`, walletID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO wallet_ledger_entries(
+		id, wallet_id, transaction_id, direction, amount_minor, currency,
+		balance_before_minor, balance_after_minor, wallet_version, created_at)
+		VALUES ($1, $2, $3, 'CREDIT', 5000, 'BRL', 5000, 10000, 2, $4)`,
+		entryID, walletID, transactionID, now); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`)
+	var databaseError *pgconn.PgError
+	if !errors.As(err, &databaseError) || databaseError.Code != "23514" {
+		t.Fatalf("invented ledger opening balance error = %v, want check violation", err)
+	}
+}
+
 func TestWalletStoreCreatesOpeningLedgerAndOutboxAtomically(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

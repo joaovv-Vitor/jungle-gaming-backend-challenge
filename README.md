@@ -120,11 +120,13 @@ docker compose exec -T localstack awslocal sqs send-message \
 
 O `messageId` do envelope identifica a inbox. Reentregas com o mesmo conteúdo são confirmadas sem reaplicar o efeito; o mesmo `messageId` com conteúdo diferente permanece na fila para redrive. Um `messageId` novo ainda é deduplicado pelas identidades financeiras compartilhadas com o HTTP.
 
-A fila compartilhada pressupõe um produtor interno confiável; `providerId` no JSON não é uma credencial. Os templates de políticas IAM para roles distintas do aplicativo e do produtor estão em `deploy/aws/`. O LocalStack Community usado pelo Compose não demonstra enforcement: credenciais fictícias conseguiram consultar a fila. Essa limitação está documentada em `REQUIREMENTS_AUDIT.md`; a execução em AWS não é necessária para este teste técnico.
+Falhas transitórias de processamento ajustam a visibility da mensagem para `5, 10, 20, 40, 80` segundos nas cinco primeiras entregas, limitados a 300 segundos se a política de redrive for ampliada. Se o ajuste falhar, a visibility original continua valendo e a inbox/idempotência mantêm a reentrega segura. Envelopes inválidos e conflitos permanentes não recebem esse backoff e seguem a política de redrive da fila; cancelamento no shutdown libera a visibility para retomada. A fila local envia à DLQ após cinco recebimentos.
+
+A fila compartilhada pressupõe um produtor interno confiável; `providerId` no JSON não é uma credencial. Os templates de políticas IAM para roles distintas do aplicativo e do produtor estão em `deploy/aws/`. `go test ./internal/adapters/sqs -run TestIAMPolicyTemplatesUseLeastPrivilegeQueueActions` confere localmente suas ações e recursos exatos. Isso não prova que o broker negue acessos: o LocalStack Community usado pelo Compose aceitou credenciais fictícias, e o [enforcement de IAM é um recurso Pro](https://github.com/localstack/localstack-docs/blob/main/src/content/docs/aws/customization/configuration-options.md). Essa limitação está documentada em `REQUIREMENTS_AUDIT.md`; o enunciado não exige execução em conta AWS real.
 
 Em AWS, configure `APP_SQS_REGION` para a região das filas e deixe `APP_SQS_ENDPOINT`, `APP_SQS_ACCESS_KEY_ID` e `APP_SQS_SECRET_ACCESS_KEY` vazios. O adaptador usa então o endpoint normal do SQS e a [cadeia padrão de credenciais do AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configure-gosdk.html), incluindo a role IAM atribuída ao processo. O Compose continua passando endpoint e credenciais estáticas de teste para o LocalStack. Se fornecer credenciais estáticas, informe acesso e segredo juntos.
 
-Verificação opcional de acesso efetivo em AWS: prepare **uma conta de teste** com as três filas FIFO vazias (`wager-transactions.fifo`, `wager-transactions-dlq.fifo`, `wager-events.fifo`) e sem consumidores ativos. Aplique as políticas de `deploy/aws/` a duas roles distintas: app e produtor interno; a terceira identidade não deve ter acesso a essas filas. Revise também queue policies e demais controles da conta. Configure três perfis de credenciais AWS que assumam essas identidades e execute:
+Verificação opcional de acesso efetivo em AWS: após provisionar as três filas FIFO vazias (`wager-transactions.fifo`, `wager-transactions-dlq.fifo`, `wager-events.fifo`) e associar as políticas às roles do app e do produtor, revise queue policies e demais controles da conta. Configure três perfis de credenciais AWS que assumam essas identidades e uma terceira sem acesso às filas, então execute:
 
 ```sh
 IAM_TEST_REGION=us-east-1 \
@@ -156,6 +158,8 @@ O endpoint `/metrics` exige token `internal`. As métricas cobrem resultados fin
 | Reuso conflitante de chave ou ID externo | 409 | `IDEMPOTENCY_CONFLICT` ou `EXTERNAL_TRANSACTION_CONFLICT` |
 | Carteira ou transação inexistente | 404 | `WALLET_NOT_FOUND` ou `TRANSACTION_NOT_FOUND` |
 | Falha concorrente ou de dependência transitória | 503 | `TRANSIENT_FAILURE`; repetir com a mesma identidade |
+
+Os endpoints que recebem JSON aceitam até 1 MiB por corpo; conteúdo acima desse limite retorna `400 INVALID_REQUEST`.
 
 ### Respostas dos endpoints de carteira
 
@@ -190,13 +194,19 @@ docker compose exec -T postgres \
 docker compose exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
   -f /migrations/000003_pending_reference_deadline.up.sql
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
+  -f /migrations/000004_wallet_ledger_continuity.up.sql
 ```
 
-Em um volume já existente na versão 2, aplique somente `000003_pending_reference_deadline.up.sql` antes de iniciar a versão nova do app. A migration antecipa para o prazo de expiração qualquer referência pendente agendada depois dele, sem remover a operação. Consulte `schema_migrations` para confirmar a versão aplicada.
+Em um volume já existente na versão 2, aplique as migrations 3 e 4 antes de iniciar a versão nova do app; em um volume na versão 3, aplique apenas a migration 4. A migration 3 antecipa para o prazo de expiração qualquer referência pendente agendada depois dele. A migration 4 recusa dados históricos cujo saldo não corresponde ao ledger ou cujos lançamentos não formam uma sequência contínua; resolva a divergência antes de reaplicá-la. Consulte `schema_migrations` para confirmar a versão aplicada.
 
 Reversão em ordem inversa; a última etapa remove permanentemente todas as tabelas e seus dados:
 
 ```sh
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
+  -f /migrations/000004_wallet_ledger_continuity.down.sql
 docker compose exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
   -f /migrations/000003_pending_reference_deadline.down.sql
@@ -214,6 +224,8 @@ Para inspecionar os planos críticos sem executar os workers, use `docker compos
 
 O prazo global de parada do Fx é calculado a partir dos limites HTTP, SQS, referência e outbox (95 segundos com os defaults). No Compose, `APP_STOP_GRACE_PERIOD` é 100 segundos por padrão; mantenha-o maior que o orçamento global ao personalizar timeouts. O SQS usa processamento de 20 segundos, visibility de 60 segundos e janela de shutdown de 30 segundos; referências e outbox usam processamento de 10 segundos e lease de 30 segundos.
 
+Deadlocks (`40P01`) e falhas de serialização (`40001`) repetem a transação financeira inteira até três tentativas, com espera curta e jitter. Outros erros de infraestrutura e commits de resultado desconhecido não são repetidos automaticamente; o cliente deve reenviar a mesma identidade quando receber `503 TRANSIENT_FAILURE`.
+
 ## Verificações
 
 ```sh
@@ -224,7 +236,9 @@ go test -tags=integration ./internal/adapters/postgres
 go test -tags=integration ./internal/adapters/auth
 go test -tags=integration -run TestKeycloakIssuedTokenIsRejectedAfterExpiry -v ./internal/adapters/auth
 go test -tags=integration ./internal/adapters/sqs
+go test -tags=integration -run TestTransientFailureDefersRedeliveryInSQS -v ./internal/adapters/sqs
 go test -tags=integration -run TestMigrationsUpDownUpInDisposableSchema -v ./internal/adapters/postgres
+go test -tags=integration -run 'Test(RuntimeRoleRejectsLedgerThatStartsFromInventedBalance|ReadCommittedRetryRecoversFromRealDeadlock)$' -v ./internal/adapters/postgres
 go test -tags=integration -run TestFourEventContractsReachSQSFromFinancialOperations -v ./internal/adapters/sqs
 go test -tags=integration -run TestThreeProcessesSerializeAndReplayAfterRestart -v ./internal/bootstrap
 go test -tags=integration -run TestLedgerCursorRemainsStableWhileNewMovementsCommit -v ./internal/bootstrap
@@ -235,7 +249,7 @@ go test -tags=integration -run TestTemporaryPostgresAndSQSOutagesRecover -v ./in
 
 Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. Para evitar disputa pelas fixtures de referência e outbox, pare apenas o app durante as suítes PostgreSQL/SQS e o teste de restart de referências (`docker compose stop app`) e religue-o depois (`docker compose start app`). O teste de expiração usa as credenciais administrativas locais (`KEYCLOAK_ADMIN` e `KEYCLOAK_ADMIN_PASSWORD`, com os padrões do Compose), cria um realm temporário e o remove ao terminar. O teste de migrations usa a role administrativa, cria um schema exclusivo e o remove ao terminar; configure `APP_DATABASE_ADMIN_URL` se necessário. O teste dos quatro contratos de evento cria uma carteira e fila FIFO isoladas e compara as mensagens aos snapshots persistidos na outbox. O teste multiprocesso `internal/bootstrap` constrói o binário e inicia três processos adicionais em portas livres; pode rodar com o app do Compose ativo e registra seus PIDs com `-v`. Ele exercita concorrência, lock entre carteiras e replay depois de reiniciar todas as três instâncias. O teste de referências pendentes encerra o processo inicial, inicia outro, resolve uma referência tardia e rejeita outra vencida, verificando outbox e replay. O teste de `SIGTERM` no SQS cria e remove uma fila FIFO isolada, bloqueia o consumo no PostgreSQL e comprova liberação antecipada da visibility e retomada por outro processo. O teste de indisponibilidade usa uma instância própria e proxies de falha locais para PostgreSQL/SQS; não para os containers, verifica readiness/liveness e a publicação da outbox após recuperação. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final. O cenário de divergência da reconciliação usa a role administrativa local para alterar somente a carteira criada pelo teste e restaura seu saldo; em outra configuração, informe `APP_DATABASE_ADMIN_URL`.
 
-Para ensaiar um volume novo sem apagar o banco principal, use outro nome de projeto e portas livres. O ensaio final de 23/09/2026 foi feito a partir de um checkout Git temporário limpo contendo as alterações atuais: confirmou build, readiness, migrations `1,2,3`, as três filas e o token recém-importado do provider B; uma leitura própria de ID ausente retornou `404`, acesso cruzado ao provider A retornou `403` e a abertura de carteira com token interno retornou `201`. `go test -race ./...` e `go vet ./...` passaram nesse checkout. A stack e o volume isolados foram removidos ao final.
+Para ensaiar um volume novo sem apagar o banco principal, use outro nome de projeto e portas livres. Um ensaio anterior em checkout Git temporário limpo confirmou build, readiness, migrations `1,2,3`, as três filas e autenticação real. Após a migration 4, um segundo projeto Compose construído da árvore de trabalho atual subiu com volume novo, respondeu readiness `200` e aplicou automaticamente as migrations `1,2,3,4`; stack e volume foram removidos. `go test -race ./...`, `go vet ./...` e a matriz completa de integração com `-race` passaram após as mudanças.
 
 ```sh
 KEYCLOAK_PORT=18081 POSTGRES_PORT=15432 LOCALSTACK_PORT=14566 APP_HTTP_PORT=18080 \

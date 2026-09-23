@@ -32,7 +32,7 @@ func NewWalletStore(
 }
 
 func (s *WalletStore) Create(ctx context.Context, creation applicationwallet.Creation) error {
-	err := s.unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	err := s.unit.ReadCommittedWithRetry(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := s.wallets.Insert(ctx, tx, creation.Wallet); err != nil {
 			return err
 		}

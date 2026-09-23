@@ -33,7 +33,7 @@ func NewIngestionStore(
 }
 
 func (s *IngestionStore) WithinTransaction(ctx context.Context, work func(application.Session) error) error {
-	err := s.unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	err := s.unit.ReadCommittedWithRetry(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		wagering := wagerSession{tx: tx, store: s.wagers}
 		return work(ingestionSession{wagerSession: wagering, inbox: s.inbox})
 	})

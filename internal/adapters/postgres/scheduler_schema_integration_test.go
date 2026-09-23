@@ -54,7 +54,7 @@ func isolatedSchedulerPools(t *testing.T, ctx context.Context) (*pgxpool.Pool, *
 	if _, err := admin.Exec(ctx, "SET search_path TO "+identifier); err != nil {
 		t.Fatal(err)
 	}
-	for version, name := range []string{"initial", "financial_semantics", "pending_reference_deadline"} {
+	for version, name := range []string{"initial", "financial_semantics", "pending_reference_deadline", "wallet_ledger_continuity"} {
 		path := filepath.Join("..", "..", "..", "migrations", fmt.Sprintf("%06d_%s.up.sql", version+1, name))
 		contents, err := os.ReadFile(path)
 		if err != nil {

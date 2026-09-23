@@ -88,6 +88,33 @@ func TestConsumerLeavesInvalidMessageForRedrive(t *testing.T) {
 	}
 }
 
+func TestConsumerBacksOffTransientFailuresButRedrivesPermanentConflicts(t *testing.T) {
+	broker := &consumerTestBroker{}
+	ingester := &consumerTestIngester{err: errors.New("database temporarily unavailable")}
+	consumer := newConsumer(broker, ingester, config.Config{
+		SQSConsumerName: "wager-transactions", SQSProcessing: time.Second,
+		SQSPingTimeout: time.Second, SQSConcurrency: 1,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)), metrics.New())
+	consumer.queueURL = "queue-url"
+
+	for count := 1; count <= 3; count++ {
+		consumer.handle(context.Background(), Message{
+			ID: "broker-1", Body: consumerTestMessage, ReceiptHandle: "receipt-1", ReceiveCount: count,
+		})
+	}
+	if len(broker.retryDelays) != 3 || broker.retryDelays[0] != 5 ||
+		broker.retryDelays[1] != 10 || broker.retryDelays[2] != 20 {
+		t.Fatalf("retry visibility delays = %v, want [5 10 20]", broker.retryDelays)
+	}
+	ingester.err = applicationwagering.ErrIdempotencyConflict
+	consumer.handle(context.Background(), Message{
+		ID: "broker-1", Body: consumerTestMessage, ReceiptHandle: "receipt-1", ReceiveCount: 4,
+	})
+	if len(broker.retryDelays) != 3 || broker.deleteCalls != 0 {
+		t.Fatalf("permanent conflict was deferred or deleted: delays=%v deletes=%d", broker.retryDelays, broker.deleteCalls)
+	}
+}
+
 func TestConsumerLogsExcludeUntrustedErrorDetails(t *testing.T) {
 	const secret = "sensitive-consumer-error-sentinel"
 	var logs bytes.Buffer
@@ -180,6 +207,7 @@ type consumerTestBroker struct {
 	deleteErrors []error
 	deleteCalls  int
 	releaseCalls int
+	retryDelays  []int32
 }
 
 func (*consumerTestBroker) QueueURL(context.Context, string) (string, error)           { return "queue-url", nil }
@@ -198,5 +226,9 @@ func (b *consumerTestBroker) Delete(context.Context, string, string) error {
 }
 func (b *consumerTestBroker) Release(context.Context, string, string) error {
 	b.releaseCalls++
+	return nil
+}
+func (b *consumerTestBroker) ChangeVisibility(_ context.Context, _, _ string, seconds int32) error {
+	b.retryDelays = append(b.retryDelays, seconds)
 	return nil
 }

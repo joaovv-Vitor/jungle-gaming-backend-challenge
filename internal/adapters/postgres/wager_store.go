@@ -33,7 +33,7 @@ func NewWagerStore(
 }
 
 func (s *WagerStore) WithinTransaction(ctx context.Context, work func(application.Session) error) error {
-	err := s.unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	err := s.unit.ReadCommittedWithRetry(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		return work(wagerSession{tx: tx, store: s})
 	})
 	var postgresError *pgconn.PgError

@@ -181,6 +181,27 @@ func TestWagerRoutesEnforceAuthenticationProviderRoleAndOwnership(t *testing.T) 
 	}
 }
 
+func TestDecodeJSONRejectsBodyBeyondSizeLimit(t *testing.T) {
+	for _, scenario := range []struct {
+		name string
+		size int
+		fail bool
+	}{
+		{name: "at limit", size: maxJSONBodyBytes},
+		{name: "over limit", size: maxJSONBodyBytes + 1, fail: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			body := `{}` + strings.Repeat(" ", scenario.size-2)
+			request := httptest.NewRequest(http.MethodPost, "/wallets", strings.NewReader(body))
+			var destination map[string]any
+			err := decodeJSON(request, &destination)
+			if (err != nil) != scenario.fail {
+				t.Fatalf("decodeJSON(%d bytes) error = %v, want failure %t", scenario.size, err, scenario.fail)
+			}
+		})
+	}
+}
+
 type routeVerifier struct{}
 
 func (routeVerifier) Verify(_ context.Context, token string) (auth.Identity, error) {

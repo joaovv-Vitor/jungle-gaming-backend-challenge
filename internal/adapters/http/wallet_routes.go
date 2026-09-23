@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,6 +17,8 @@ import (
 	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
 )
+
+const maxJSONBodyBytes = 1 << 20
 
 func registerWalletRoutes(mux *http.ServeMux, authentication *auth.Middleware, wallets *applicationwallet.Service, reconciler *applicationreconciliation.Service, instrumentation *metrics.Metrics, logger *slog.Logger) {
 	handler := walletHandler{wallets: wallets, reconciler: reconciler, metrics: instrumentation, logger: logger}
@@ -182,7 +185,14 @@ func walletResponse(account interface {
 }
 
 func decodeJSON(r *http.Request, destination any) error {
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodyBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxJSONBodyBytes {
+		return errors.New("request body exceeds size limit")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		return err

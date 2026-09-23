@@ -60,7 +60,7 @@ func (s *ReferenceStore) Claim(ctx context.Context, lease time.Duration) (*appli
 }
 
 func (s *ReferenceStore) WithinTransaction(ctx context.Context, work func(application.Session) error) error {
-	return s.unit.ReadCommitted(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	return s.unit.ReadCommittedWithRetry(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		session := &referenceSession{wagerSession: wagerSession{tx: tx, store: s.wagers}}
 		return work(session)
 	})

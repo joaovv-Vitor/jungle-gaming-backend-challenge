@@ -54,7 +54,7 @@ func TestMigrationsUpDownUpInDisposableSchema(t *testing.T) {
 	apply := func(version int, direction string) {
 		t.Helper()
 		name := fmt.Sprintf("%06d_%s.%s.sql", version, map[int]string{
-			1: "initial", 2: "financial_semantics", 3: "pending_reference_deadline",
+			1: "initial", 2: "financial_semantics", 3: "pending_reference_deadline", 4: "wallet_ledger_continuity",
 		}[version], direction)
 		contents, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", name))
 		if err != nil {
@@ -89,14 +89,14 @@ func TestMigrationsUpDownUpInDisposableSchema(t *testing.T) {
 		}
 	}
 
-	for _, version := range []int{1, 2, 3} {
+	for _, version := range []int{1, 2, 3, 4} {
 		apply(version, "up")
 	}
-	checkVersions("1,2,3")
+	checkVersions("1,2,3,4")
 	checkConstraint(true)
-	for _, version := range []int{3, 2} {
+	for _, version := range []int{4, 3, 2} {
 		apply(version, "down")
-		checkVersions(map[int]string{3: "1,2", 2: "1"}[version])
+		checkVersions(map[int]string{4: "1,2,3", 3: "1,2", 2: "1"}[version])
 	}
 	checkConstraint(false)
 	apply(1, "down")
@@ -107,9 +107,9 @@ func TestMigrationsUpDownUpInDisposableSchema(t *testing.T) {
 	if remaining != nil {
 		t.Fatalf("schema_migrations remains after down: %s", *remaining)
 	}
-	for _, version := range []int{1, 2, 3} {
+	for _, version := range []int{1, 2, 3, 4} {
 		apply(version, "up")
 	}
-	checkVersions("1,2,3")
+	checkVersions("1,2,3,4")
 	checkConstraint(true)
 }

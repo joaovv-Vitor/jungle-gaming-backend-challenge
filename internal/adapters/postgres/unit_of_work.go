@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -22,6 +24,34 @@ func NewUnitOfWork(pool *pgxpool.Pool) *UnitOfWork {
 
 func (u *UnitOfWork) ReadCommitted(ctx context.Context, work TransactionWork) error {
 	return u.within(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, work)
+}
+
+// ReadCommittedWithRetry repeats the complete database transaction only when
+// PostgreSQL definitively aborted it due to a deadlock or serialization error.
+// Callers must keep external I/O outside work and rebuild attempt-local output.
+func (u *UnitOfWork) ReadCommittedWithRetry(ctx context.Context, work TransactionWork) error {
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := u.ReadCommitted(ctx, work)
+		if err == nil || !retryableTransactionAbort(err) || attempt == maxAttempts {
+			return err
+		}
+		delay := time.Duration(1<<(attempt-1))*20*time.Millisecond + time.Duration(rand.Int63n(int64(20*time.Millisecond)))
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil
+}
+
+func retryableTransactionAbort(err error) bool {
+	var databaseError *pgconn.PgError
+	return errors.As(err, &databaseError) &&
+		(databaseError.Code == "40P01" || databaseError.Code == "40001")
 }
 
 func (u *UnitOfWork) RepeatableReadOnly(ctx context.Context, work TransactionWork) error {

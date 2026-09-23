@@ -22,6 +22,8 @@ Operações financeiras usarão transação `READ COMMITTED` e lock pessimista p
 
 Todos os fluxos seguirão a ordem de locks definida na seção 11.2 do plano. Deadlocks e falhas de serialização provocam retry limitado da transação inteira; não viram rejeição de negócio.
 
+O retry transacional é aplicado apenas a `40P01` e `40001`, até três tentativas com jitter. Cada tentativa abre uma transação nova e repete o callback completo; erros de conexão e commits ambíguos não são repetidos automaticamente. I/O externo permanece fora do callback.
+
 O caso de uso delimita a transação por meio de `UnitOfWork`; os repositórios não abrem nem confirmam transações. Eles recebem a mesma interface `DBTX`, satisfeita por `pgx.Tx`, para que carteira, transação de aposta e ledger participem do mesmo commit. Consultas de reconciliação usam uma unidade de trabalho separada em `REPEATABLE READ READ ONLY`.
 
 Além do lock pessimista, o `UPDATE` da carteira compara a versão anterior e exige exatamente uma linha afetada. Isso detecta uso incorreto de um agregado obsoleto sem substituir a serialização por carteira.
@@ -46,6 +48,8 @@ Em `READ COMMITTED`, uma inserção concorrente pode tornar-se visível entre as
 
 O ledger será append-only. Reversões criam novos lançamentos e não editam histórico. Constraints, FKs, triggers diferíveis e privilégios da role de runtime protegerão a correspondência entre saldo, transação e lançamento, além de impedir `UPDATE`, `DELETE` e `TRUNCATE`.
 
+A migration 4 verifica o histórico antes da instalação e faz a trigger diferível exigir que `balance_before_minor` seja exatamente o saldo anterior da carteira (zero na abertura), além de conferir saldo posterior, versão, transação, valor e direção. Isso impede que um lançamento comece de um saldo inventado mesmo quando a equação interna do lançamento está correta.
+
 ### Referências e reversões
 
 Uma `BET` admite uma única reversão direta bem-sucedida, `REFUND` ou `ROLLBACK`; `WIN` e `REFUND` admitem um `ROLLBACK`. Desfazer um `REFUND` não reabre a aposta para outra reversão. Referências ainda ausentes são persistidas com agenda, expiração e lease; outra instância pode retomá-las.
@@ -53,6 +57,8 @@ Uma `BET` admite uma única reversão direta bem-sucedida, `REFUND` ou `ROLLBACK
 ### Inbox e outbox
 
 A inbox deduplica mensagens por consumidor e `messageId`, verificando também o hash do envelope. A conclusão da inbox compartilha o commit dos efeitos de negócio. Eventos são gravados na outbox antes da publicação; publishers concorrentes usam lease e token. Uma queda após o envio pode republicar o mesmo `eventId`, portanto a entrega externa permanece at-least-once.
+
+No consumidor SQS, erros transitórios de processamento alteram a visibility com backoff exponencial de 5 segundos, dobrando por recebimento até 300 segundos. Envelopes inválidos e conflitos permanentes permanecem para o redrive; uma falha ao alterar a visibility mantém a reentrega original segura.
 
 O consumidor usa AWS SDK for Go v2 e long polling. O envelope é validado e normalizado antes da transação; seu hash SHA-256 inclui `data`, `messageId`, `occurredAt` e `type`, mas não atributos de entrega do broker. A sessão de wagering pode ser executada dentro da transação aberta pela ingestão, permitindo confirmar inbox, carteira, transação, ledger e outbox atomicamente. A mensagem SQS só é apagada depois desse commit; falha no delete provoca reentrega segura.
 
@@ -62,7 +68,7 @@ O HTTP usará OAuth 2.0/OIDC com Keycloak local e `client_credentials`. O token 
 
 O adaptador usa `go-oidc` 3.21.0 para verificar assinatura RS256, emissor, audiência e validade temporal. Em Docker, o emissor público (`localhost:8081`) permanece o valor validado no token, enquanto uma URL JWKS interna (`keycloak:8080`) é configurada separadamente; isso evita desabilitar a validação de issuer apenas para contornar DNS entre host e containers. O claim `provider_id` identifica o provedor e `realm_access.roles` determina as permissões `provider` e `internal`.
 
-O realm de teste contém dois clients de provedor para demonstrar isolamento com tokens reais. A fila SQS compartilhada é uma fronteira de confiança diferente do HTTP: apenas o serviço interno de ingestão deve enviar, usando uma role IAM separada da role do aplicativo. Com endpoint e credenciais explícitas vazios, o adaptador usa a cadeia padrão de credenciais do SDK e o endpoint AWS da região; o Compose mantém credenciais locais para o LocalStack. Os templates de menor privilégio estão em `deploy/aws/`. `TestAWSIAMQueuePermissions` está disponível como verificação opcional de acesso efetivo na AWS. O LocalStack Community local aceitou credenciais fictícias para consultar a fila e não comprova negação por IAM; essa limitação não bloqueia a conclusão do teste técnico local e consta em `REQUIREMENTS_AUDIT.md`.
+O realm de teste contém dois clients de provedor para demonstrar isolamento com tokens reais. A fila SQS compartilhada é uma fronteira de confiança diferente do HTTP: apenas o serviço interno de ingestão deve enviar, usando uma role IAM separada da role do aplicativo. Com endpoint e credenciais explícitas vazios, o adaptador usa a cadeia padrão de credenciais do SDK e o endpoint AWS da região; o Compose mantém credenciais locais para o LocalStack. Os templates de menor privilégio estão em `deploy/aws/` e um teste local confere suas ações e recursos exatos. `TestAWSIAMQueuePermissions` está disponível como verificação opcional de acesso efetivo na AWS. O LocalStack Community local aceitou credenciais fictícias para consultar a fila e não comprova negação por IAM; o [enforcement de IAM exige a edição Pro do LocalStack](https://github.com/localstack/localstack-docs/blob/main/src/content/docs/aws/customization/configuration-options.md). O enunciado não exige teste em conta AWS real; essa limitação está registrada em `REQUIREMENTS_AUDIT.md`.
 
 ### Composição e encerramento
 

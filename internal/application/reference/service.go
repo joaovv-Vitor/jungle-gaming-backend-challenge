@@ -76,6 +76,7 @@ func (s *Service) ProcessOne(ctx context.Context) (Outcome, error) {
 	}
 	outcome := OutcomeStale
 	err = s.store.WithinTransaction(ctx, func(session Session) error {
+		outcome = OutcomeStale
 		account, err := session.LockWallet(ctx, claim.WalletID)
 		if err != nil {
 			return err

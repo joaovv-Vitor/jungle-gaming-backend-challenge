@@ -111,7 +111,19 @@ type brokerTestClient struct {
 	receiveInput     *awssqs.ReceiveMessageInput
 	receiveOutput    *awssqs.ReceiveMessageOutput
 	sendInput        *awssqs.SendMessageInput
+	visibilityInput  *awssqs.ChangeMessageVisibilityInput
 	attributesOutput *awssqs.GetQueueAttributesOutput
+}
+
+func TestBrokerChangesVisibilityForRetry(t *testing.T) {
+	client := &brokerTestClient{}
+	if err := (&Broker{client: client}).ChangeVisibility(context.Background(), "queue", "receipt", 20); err != nil {
+		t.Fatal(err)
+	}
+	if client.visibilityInput == nil || client.visibilityInput.VisibilityTimeout != 20 ||
+		aws.ToString(client.visibilityInput.ReceiptHandle) != "receipt" {
+		t.Fatalf("visibility request = %+v", client.visibilityInput)
+	}
 }
 
 func TestBrokerSendUsesStableEventIdentity(t *testing.T) {
@@ -151,6 +163,7 @@ func (c *brokerTestClient) DeleteMessage(context.Context, *awssqs.DeleteMessageI
 	return nil, errors.New("unexpected DeleteMessage")
 }
 
-func (c *brokerTestClient) ChangeMessageVisibility(context.Context, *awssqs.ChangeMessageVisibilityInput, ...func(*awssqs.Options)) (*awssqs.ChangeMessageVisibilityOutput, error) {
-	return nil, errors.New("unexpected ChangeMessageVisibility")
+func (c *brokerTestClient) ChangeMessageVisibility(_ context.Context, input *awssqs.ChangeMessageVisibilityInput, _ ...func(*awssqs.Options)) (*awssqs.ChangeMessageVisibilityOutput, error) {
+	c.visibilityInput = input
+	return &awssqs.ChangeMessageVisibilityOutput{}, nil
 }

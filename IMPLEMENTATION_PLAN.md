@@ -56,8 +56,15 @@ Atualizado em 23 de setembro de 2026:
 - O teste HTTP com Keycloak real agora inspeciona o log do processo após autenticação, operação financeira e acessos negados, exigindo o registro de resultado e a ausência de tokens, segredos de clients e marcador enviado no corpo/chave idempotente.
 - A expiração também foi provada com token assinado pelo Keycloak real: um realm exclusivo de teste limita a vida do access token a dois segundos; o verificador aceita o token novo e o rejeita após o `exp`. O teste remove o realm ao terminar.
 - Logs de falha dos workers SQS, referência e outbox passaram a usar categorias limitadas em vez de mensagens brutas de dependências ou da entrada; `outbox_events.last_error` guarda `publish_<categoria>`. Testes injetam marcador sensível em JSON inválido, erros de consumo, delete, referência, claim e publicação e verificam ausência nos registros persistidos e emitidos.
-- A Fase 11 foi concluída no escopo local: um snapshot Git temporário com as alterações atuais foi clonado em checkout limpo e iniciou outra stack Compose com volume novo e portas próprias. Build, readiness, migrations `1,2,3`, filas FIFO/DLQ, token importado do provider B, isolamento entre providers, abertura de carteira, `go test -race ./...` e `go vet ./...` passaram. O projeto, o volume e o checkout temporários foram removidos sem criar commit no repositório principal.
+- Antes da migration 4, a Fase 11 passou em um snapshot Git temporário clonado em checkout limpo: build, readiness, migrations `1,2,3`, filas FIFO/DLQ, token do provider B, isolamento, abertura de carteira, `go test -race ./...` e `go vet ./...`. O projeto, volume e checkout temporários foram removidos sem criar commit no repositório principal.
 - O adaptador SQS aceita endpoint e credenciais estáticas vazios para usar o endpoint AWS e a cadeia padrão de credenciais do SDK; o Compose preserva a configuração explícita do LocalStack. `TestAWSIAMQueuePermissions` fica disponível como verificação opcional fora do escopo local. A matriz completa de integração com PostgreSQL, Keycloak, LocalStack e processos reais passou com `-race` após a correção das credenciais locais do harness; `go test -race ./...` e `go vet ./...` também passaram.
+- Os templates IAM do aplicativo e do produtor agora têm um teste local que confere ações e recursos exatos, evitando ampliação acidental das permissões declaradas. Isso não demonstra que o LocalStack Community negue acesso indevido; a edição usada no Compose não oferece enforcement de IAM. O enunciado não exige teste em conta AWS real.
+- O parser dos endpoints HTTP agora rejeita corpos JSON acima de 1 MiB mesmo quando o primeiro objeto é válido e o conteúdo excedente seria apenas espaço em branco. Um teste cobre exatamente o limite e o primeiro byte excedente.
+- Uma auditoria com a role de runtime encontrou um saldo de `100.00` aceito com ledger somando `50.00`: o lançamento iniciava em saldo inventado. A migration 4 verifica a continuidade do histórico existente e exige `balance_before_minor` igual ao saldo anterior da carteira na trigger diferível. `TestRuntimeRoleRejectsLedgerThatStartsFromInventedBalance` reproduz a tentativa inválida e exige rejeição; migrations `up/down/up` e fluxos financeiros existentes passaram com a versão 4.
+- Transações financeiras em `READ COMMITTED` agora repetem o callback inteiro até três vezes somente para `40P01`/`40001`, com espera curta e jitter. Testes de integração confirmam rollback da primeira tentativa, um deadlock real entre duas conexões e conclusão de ambos os trabalhos após uma repetição. Erros de conexão e commits ambíguos continuam exigindo retry pelo cliente com a mesma identidade.
+- O consumidor SQS agora usa `ChangeMessageVisibility` para backoff de processamento transitório: 5 segundos, dobrando por recebimento até 300 segundos. Conflitos permanentes e envelopes inválidos seguem para redrive sem esse ajuste; testes unitários conferem os atrasos e a chamada ao broker. O IAM efetivo continua não demonstrado no LocalStack Community.
+- Um teste de integração com fila FIFO isolada confirmou no LocalStack que a falha transitória adiou a reentrega real por cerca de cinco segundos e elevou `ApproximateReceiveCount` para 2. O enunciado exige SQS executado localmente, não uma conta AWS real; a ausência de enforcement de políticas no LocalStack Community permanece registrada como limitação.
+- Após essas mudanças, a matriz completa PostgreSQL/Keycloak/LocalStack/bootstrap passou com `-race`; `go test -race ./...` e `go vet ./...` passaram. O app principal foi reconstruído e respondeu readiness com migrations `1,2,3,4`. Um segundo projeto Compose com volume novo, construído da árvore de trabalho atual, também respondeu readiness e aplicou automaticamente as quatro migrations; a stack e o volume descartáveis foram removidos.
 - As fases 0–11 estão concluídas para a entrega local do teste técnico. A verificação opcional de IAM em AWS e medições com dados/carga reais permanecem fora desse escopo; o ensaio SQL sintético está reproduzível e não é alegação de desempenho em produção.
 
 ---
@@ -551,6 +558,8 @@ A role da aplicação recebe somente `SELECT`/`INSERT` no ledger, sem `UPDATE`, 
 
 Para sustentar a garantia de integridade no banco, implementar constraint triggers diferíveis que validem no commit a correspondência entre alteração de saldo/versão e lançamento, bem como transação processada, valor e direção. `LOSS`, rejeições e abertura zero não admitem ledger. Não executar soma integral do histórico a cada operação: verificar apenas carteira/transações afetadas; reconciliação faz a conferência completa. Escritas diretas inválidas devem falhar nos testes SQL.
 
+A migration 4 acrescenta a continuidade entre o saldo anterior real da carteira e `balance_before_minor`. Antes de instalar a regra, valida a cadeia e a soma do ledger existente sob bloqueio de escrita; divergências interrompem a migration para investigação. O teste de regressão usa a role de runtime e tenta gravar uma operação cujo lançamento tem equação correta, mas começa de um saldo inventado.
+
 ## 9.4. Tabela `consumer_inbox`
 
 Campos:
@@ -682,6 +691,8 @@ Para reduzir deadlocks, todos os caminhos financeiros deverão adotar uma ordem 
 O worker de referências deverá buscar candidatos sem manter locks longos e processar cada item usando a mesma ordem do caso de uso principal.
 
 A reivindicação do job ocorre em transação curta separada e termina antes de adquirir o lock da carteira. Não manter lock na operação enquanto se espera pela carteira: isso inverteria a ordem adotada pelo HTTP. Validar estado e token do lease novamente após bloquear a carteira. Retentar a transação inteira em deadlock ou falha de serialização com limite e jitter; ao esgotar, responder indisponibilidade transitória ou permitir reentrega, sem rejeição financeira.
+
+O retry implementado usa até três tentativas apenas para SQLSTATE `40P01` e `40001`. Uma tentativa nova começa após rollback da anterior; commits ambíguos e erros de conexão não entram nesse retry automático.
 
 ## 11.3. Cenário obrigatório de disputa
 
@@ -912,6 +923,8 @@ Essas propriedades melhoram o comportamento do transporte, mas não substituem i
 Mensagens inválidas ou permanentemente impossíveis deverão permanecer sem confirmação até atingirem a política de redrive para a DLQ, com log e métrica adequados.
 
 Valores iniciais do projeto: `maxReceiveCount = 5`, long polling de 20 segundos, visibility de 60 segundos, prazo de processamento de 20 segundos e shutdown de 30 segundos; tornar configuráveis e verificar sua compatibilidade no startup. Se o trabalho exceder a janela prevista, renovar visibilidade com antecedência; falha na renovação mantém o caminho idempotente. Aplicar backoff de reentrega sem espera ocupada. Validar limites dessas configurações na documentação da versão escolhida durante o bootstrap.
+
+Para erro transitório após receber a mensagem, a implementação ajusta a visibility a 5, 10, 20, 40 e 80 segundos nas cinco primeiras tentativas, com teto de 300 segundos. Erros permanentes não recebem o ajuste e chegam à DLQ pela política da fila. Se `ChangeMessageVisibility` falhar, permanece o prazo original e a idempotência protege a reentrega. No shutdown, o prazo é reduzido a zero após o trabalho local ser cancelado.
 
 Rejeição de negócio persistida e `PENDING_REFERENCE` confirmado permitem delete; envelope inválido, conflito permanente de mensagem e falha transitória não permitem delete sem tratamento durável adequado. Em shutdown, só liberar visibilidade após interromper/encerrar o trabalho local; falha de delete após commit permite reentrega. Métrica de DLQ deve observar mensagens efetivamente disponíveis nela, não apenas erros que talvez sejam redirecionados.
 
@@ -1480,7 +1493,7 @@ A implementação local do teste técnico estará concluída quando (a limitaç�
 
 ## 23. Próximo passo imediato
 
-A auditoria linha a linha da matriz está em `REQUIREMENTS_AUDIT.md`. A Fase 10 foi concluída com os cenários locais exigidos; a negação efetiva por IAM não é demonstrável no LocalStack Community e sua verificação em AWS permanece opcional, sem ser declarada coberta. Reavaliar planos SQL com dados e carga do ambiente alvo antes de alegar desempenho em escala.
+A auditoria linha a linha da matriz está em `REQUIREMENTS_AUDIT.md`. As fases locais estão concluídas. A verificação local dos templates IAM preserva as permissões declaradas, mas a negação efetiva por IAM não é demonstrável no LocalStack Community e não foi declarada coberta. O enunciado não exige conta AWS real; a verificação opcional em AWS depende de uma conta de teste isolada. Reavaliar planos SQL com dados e carga do ambiente alvo antes de alegar desempenho em escala.
 
 ---
 
@@ -1496,7 +1509,7 @@ Os números da primeira coluna referem-se às seções do enunciado. Todos os it
 | §5, §6.1: dinheiro exato e limites | §7.1; fase 2 | Parsing, serialização/persistência sem float, limites int64 e moedas incompatíveis |
 | §6: encapsulamento, erros e reidratação | §7; fase 2 | Zero values inválidos, transições ilegais e reidratação sem eventos/movimento |
 | §6.2, §9: carteira e OPENING | §7.2, §9, §12.1; fase 4 | Versão 1, abertura positiva atômica; zero sem eventos; conflito de jogador/moeda |
-| §5, §6.4: invariantes no banco e ledger append-only | §9; fase 3 | SQL direto inválido rejeitado; role runtime sem edição/exclusão/TRUNCATE; saldo/ledger atômicos |
+| §5, §6.4: invariantes no banco e ledger append-only | §9; fase 3 | SQL direto inválido rejeitado, inclusive saldo anterior inventado; role runtime sem edição/exclusão/TRUNCATE; saldo/ledger atômicos |
 | §6.3: estados, histórico e retomada | §7.3, §10, §12.4 | Nenhum PENDING intermediário confirmado; pendência retomada; terminal imutável |
 | §7: cinco tipos e regras de zero | §8; fases 2 e 5 | BET/WIN positivos; LOSS zero sem ledger/versão e com evento de processamento |
 | §7: reversões e referência opcional | §8.1; fases 5 e 7 | Referência e valor validados; disputa REFUND/ROLLBACK, cadeia e débito reverso sem saldo |
@@ -1507,7 +1520,7 @@ Os números da primeira coluna referem-se às seções do enunciado. Todos os it
 | §9: replay financeiro histórico | §10, §14; fase 5 | Sucesso/rejeição retornam saldo original após novas operações; autorização no replay |
 | §9: reconciliação consistente | §12.6; fase 9 | Snapshot sob escrita concorrente, diferença com sinal correto, checkedEntries e divergência observável sem reparo |
 | §6.5, §10: inbox e at-least-once | §12.3, §15; fase 6 | Hash do messageId, cruzamento HTTP/SQS, commit antes de delete e reentrega efetiva |
-| §10: retry, DLQ e SIGTERM | §15–16; fase 6 | Mensagem inválida chega à DLQ; falha transitória recupera; trabalho concluído/liberado no prazo |
+| §10: retry, DLQ e SIGTERM | §15–16; fase 6 | Mensagem inválida chega à DLQ; falha transitória usa visibility com backoff; trabalho concluído/liberado no prazo |
 | §11: outbox concorrente e recuperável | §12.5; fase 8 | Dois publishers, queda nos dois intervalos críticos, lease retomado, eventId estável e nenhuma perda |
 | §11: contratos dos quatro eventos | §7.5; fases 2–5 e 8 | Payloads concretos, snapshot imutável, eventos corretos de OPENING/LOSS/rejeição/pendência |
 | §12: observabilidade e health | §17; fases 1–9 | Logs sem segredos, métricas exigidas, liveness pública e readiness de PostgreSQL/SQS |

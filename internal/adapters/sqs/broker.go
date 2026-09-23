@@ -133,11 +133,15 @@ func (b *Broker) Delete(ctx context.Context, queueURL, receiptHandle string) err
 }
 
 func (b *Broker) Release(ctx context.Context, queueURL, receiptHandle string) error {
+	return b.ChangeVisibility(ctx, queueURL, receiptHandle, 0)
+}
+
+func (b *Broker) ChangeVisibility(ctx context.Context, queueURL, receiptHandle string, seconds int32) error {
 	_, err := b.client.ChangeMessageVisibility(ctx, &awssqs.ChangeMessageVisibilityInput{
-		QueueUrl: aws.String(queueURL), ReceiptHandle: aws.String(receiptHandle), VisibilityTimeout: 0,
+		QueueUrl: aws.String(queueURL), ReceiptHandle: aws.String(receiptHandle), VisibilityTimeout: seconds,
 	})
 	if err != nil {
-		return fmt.Errorf("release SQS message visibility: %w", err)
+		return fmt.Errorf("change SQS message visibility: %w", err)
 	}
 	return nil
 }
