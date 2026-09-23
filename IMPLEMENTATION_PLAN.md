@@ -48,7 +48,8 @@ Atualizado em 23 de setembro de 2026:
 - Falhas temporárias da Fase 10 verificadas com proxies locais isolados: perda de conexão PostgreSQL derruba apenas o readiness, responde `503 TRANSIENT_FAILURE` sem confirmar resultado e permite retry pela mesma identidade após recuperação; perda temporária do SQS preserva o commit financeiro na outbox e publica os eventos depois da volta do broker. Liveness permaneceu disponível e o saldo final foi conferido contra o ledger. O teste não interrompe containers compartilhados.
 - Hardening da Fase 10: migration 3 formaliza `next_attempt_at <= expires_at` em referências pendentes, normalizando registros antigos; claims de referência e outbox usam `statement_timestamp()` para transformar o prazo em condição de índice. `EXPLAIN` local confirmou o uso de `wager_pending_reference_work`, `outbox_pending_work`, `ledger_wallet_page` e da PK da inbox; a estatística da outbox faz index-only scan. O timeout global de parada do Fx acompanha a soma dos limites dos hooks, e o grace period do Compose foi ampliado para comportá-lo.
 - Auditoria da Fase 10 registrada em `REQUIREMENTS_AUDIT.md`: teste de autorização real inclui dois provedores e ausência de efeitos financeiros para acessos indevidos; há templates IAM de menor privilégio, mas o LocalStack Community aceitou credenciais fictícias e não demonstra negação no broker. A matriz permanece aberta onde a evidência é parcial.
-- Próxima etapa: priorizar corrida de reversões e retomada de referência após restart; depois fechar os demais cenários parciais e a documentação de entrega. Repetir análise de planos com dados representativos antes de afirmar desempenho em escala.
+- Corrida `REFUND` × `ROLLBACK` e rollback debitante sem fundos verificados em PostgreSQL real; uma rejeição reproduz o saldo histórico após nova operação. Um teste de processo real confirmou referência pendente preservada por SIGTERM, resolução tardia e expiração com evento terminal após restart.
+- Próxima etapa: fechar os demais cenários parciais da matriz e a documentação de entrega. Repetir análise de planos com dados representativos antes de afirmar desempenho em escala.
 
 ---
 
@@ -1470,7 +1471,7 @@ A implementação estará concluída quando:
 
 ## 23. Próximo passo imediato
 
-A auditoria linha a linha da matriz está em `REQUIREMENTS_AUDIT.md`. Implementar e executar primeiro os cenários ainda parciais de reversões e retomada; validar o controle de acesso ao broker em ambiente com IAM enforcement antes de marcá-lo concluído. Em seguida, ensaiar checkout/volume limpo e revisar a entrega. Reavaliar planos SQL com volume representativo antes de alegar desempenho em escala.
+A auditoria linha a linha da matriz está em `REQUIREMENTS_AUDIT.md`. Fechar os cenários HTTP/SIGTERM/eventos/observabilidade ainda parciais; validar o controle de acesso ao broker em ambiente com IAM enforcement antes de marcá-lo concluído. Em seguida, ensaiar checkout/volume limpo e revisar a entrega. Reavaliar planos SQL com volume representativo antes de alegar desempenho em escala.
 
 ---
 

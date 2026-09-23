@@ -11,14 +11,14 @@ Revisão da matriz da seção 24 de `IMPLEMENTATION_PLAN.md` em 23/09/2026. **Co
 | §6: domínio e reidratação | Coberto | Testes de `wallet`, `wagering`, `ledger` e `event` exercitam zero values, transições e reidratação. |
 | §6.2, §9: abertura de carteira | Coberto | `TestWalletStoreCreatesOpeningLedgerAndOutboxAtomically` e testes do serviço: saldo positivo, zero, versão e conflito. |
 | §5, §6.4: invariantes e ledger | Coberto | `TestDatabaseRejectsInvalidFinancialSemantics` cobre escrita semanticamente inválida; `TestRuntimeRoleCannotMutateLedger` confirma negação de `UPDATE`, `DELETE` e `TRUNCATE` pela role runtime, sem alterar o ledger. |
-| §6.3: estados e retomada | Parcial | Máquina de estados e worker de pendências têm testes; falta cenário end-to-end de pendência atravessando restart completo. |
+| §6.3: estados e retomada | Coberto | Máquina de estados e `TestPendingReferencesResolveAndExpireAfterFullProcessRestart` demonstram pendência persistida, retomada e estados terminais após novo processo. |
 | §7: cinco tipos e LOSS | Coberto | `TestWagerServiceProcessesAllKindsAndPendingReference` e testes de domínio cobrem os cinco tipos; LOSS zero não gera movimento. |
-| §7: reversões | Parcial | Regras, segunda reversão e cadeia sequencial testadas; falta corrida explícita `REFUND` × `ROLLBACK` e rollback debitante sem fundos. |
-| §7: ordem das referências | Parcial | `TestReferenceWorkerReschedulesAndCompletesAfterReferenceArrives`, rejeição e TTL em PostgreSQL; falta expiração após restart completo e conferência de evento terminal. |
+| §7: reversões | Coberto | Regras e cadeia sequencial, `TestRefundAndRollbackRaceForSameBet` com duas conexões bloqueadas na mesma carteira e `TestRollbackOfWinRejectsWhenBalanceIsInsufficient`. |
+| §7: ordem das referências | Coberto | `TestReferenceWorkerReschedulesAndCompletesAfterReferenceArrives`, rejeição e TTL em PostgreSQL; `TestPendingReferencesResolveAndExpireAfterFullProcessRestart` verifica resolução e expiração, eventos e replay terminal após restart. |
 | §8: coordenação distribuída | Coberto | `TestThreeProcessesSerializeAndReplayAfterRestart` sobe três processos, testa disputa, carteira independente e replay após SIGTERM/restart. |
 | §9: HTTP e consultas | Parcial | Endpoints e códigos exercitados em integração; falta teste de estabilidade da paginação por cursor sob inserções concorrentes. |
 | §9: hash e duas identidades | Coberto | `TestCanonicalPayloadVector`, 50 duplicatas e testes de conflitos de identidade em PostgreSQL. |
-| §9: replay histórico | Parcial | Replay de sucesso preserva saldo original após novas operações; falta replay de rejeição após outras operações com asserção do saldo histórico. |
+| §9: replay histórico | Coberto | Replay de sucesso e `TestRefundAndRollbackRaceForSameBet` verificam saldo histórico de rejeição após nova operação; teste com Keycloak nega replay por outro provedor. |
 | §9: reconciliação | Coberto | Testes de snapshot concorrente, divergência sinalizada e overflow em `reconciliation_integration_test.go`. |
 | §6.5, §10: inbox | Coberto | Testes de commit atômico, cruzamento HTTP/SQS e redelivery em PostgreSQL/LocalStack. |
 | §10: retry, DLQ e SIGTERM | Parcial | Redrive real, recuperação de falhas e SIGTERM multiprocesso existem; falta teste com mensagem em processamento durante SIGTERM e prazo de visibility. |
@@ -41,7 +41,7 @@ go test -race -tags=integration -p 1 ./internal/adapters/postgres ./internal/ada
 docker compose start app
 ```
 
-A suíte `internal/bootstrap` também pode rodar com o app do Compose ativo; o comando acima o para apenas para evitar disputa das fixtures de PostgreSQL/SQS. Os testes de integração exigem portas publicadas e serviços inicializados. Uma execução bem-sucedida não fecha as lacunas descritas na tabela.
+A suíte `internal/bootstrap` pode rodar com o app do Compose ativo em geral, mas o cenário de reinício de referência deve rodar com o app parado para que apenas seus processos assumam as pendências. Os testes de integração exigem portas publicadas e serviços inicializados. Uma execução bem-sucedida não fecha as lacunas descritas na tabela.
 
 ## Fronteira de confiança do SQS
 
