@@ -32,6 +32,8 @@ Os repositórios usam SQL explícito e reconstroem agregados pelos construtores 
 
 `WalletRepository` concentra leitura simples, leitura com `FOR NO KEY UPDATE`, inserção e atualização versionada. `WagerRepository` oferece as três identidades necessárias para replay e conflito: ID interno, `(provider_id, idempotency_key)` e `(provider_id, external_transaction_id)`. `LedgerRepository` oferece somente inserção, coerente com o ledger append-only; o banco também bloqueia mutações diretas.
 
+A leitura paginada do ledger usa `(wallet_version, id)` em ordem descendente e cursor opaco com versão de formato, carteira e última chave. A próxima página exige chave estritamente menor; como as novas movimentações recebem versões maiores sob lock e o ledger é append-only, escritas posteriores à primeira página não repetem nem deslocam os lançamentos mais antigos. O limite HTTP é 1–100, com padrão 50.
+
 ### Idempotência
 
 O banco imporá unicidade de `(provider_id, idempotency_key)` e `(provider_id, external_transaction_id)`. Um SHA-256 do payload de negócio canônico detectará reuso da identidade com conteúdo diferente. Replays reproduzirão o resultado persistido, inclusive o saldo observado no processamento original.

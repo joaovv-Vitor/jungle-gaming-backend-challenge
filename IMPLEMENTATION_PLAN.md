@@ -49,6 +49,7 @@ Atualizado em 23 de setembro de 2026:
 - Hardening da Fase 10: migration 3 formaliza `next_attempt_at <= expires_at` em referências pendentes, normalizando registros antigos; claims de referência e outbox usam `statement_timestamp()` para transformar o prazo em condição de índice. `EXPLAIN` local confirmou o uso de `wager_pending_reference_work`, `outbox_pending_work`, `ledger_wallet_page` e da PK da inbox; a estatística da outbox faz index-only scan. O timeout global de parada do Fx acompanha a soma dos limites dos hooks, e o grace period do Compose foi ampliado para comportá-lo.
 - Auditoria da Fase 10 registrada em `REQUIREMENTS_AUDIT.md`: teste de autorização real inclui dois provedores e ausência de efeitos financeiros para acessos indevidos; há templates IAM de menor privilégio, mas o LocalStack Community aceitou credenciais fictícias e não demonstra negação no broker. A matriz permanece aberta onde a evidência é parcial.
 - Corrida `REFUND` × `ROLLBACK` e rollback debitante sem fundos verificados em PostgreSQL real; uma rejeição reproduz o saldo histórico após nova operação. Um teste de processo real confirmou referência pendente preservada por SIGTERM, resolução tardia e expiração com evento terminal após restart.
+- Paginação do ledger alinhada ao contrato do §14.2: ordem descendente, limite 100 e cursor versionado/vinculado à carteira. Um teste HTTP real percorre o histórico enquanto novos lançamentos confirmam e verifica ausência de duplicatas/omissões, ordenação e erros de cursor.
 - Próxima etapa: fechar os demais cenários parciais da matriz e a documentação de entrega. Repetir análise de planos com dados representativos antes de afirmar desempenho em escala.
 
 ---
@@ -834,31 +835,31 @@ Provisionar e demonstrar políticas de acesso do broker com as capacidades efeti
 
 ---
 
-## 14. Contratos HTTP propostos
+## 14. Contratos HTTP implementados
 
 ## 14.1. Status codes
 
-| Situação | Código sugerido |
+| Situação | Código |
 | --- | ---: |
 | Carteira criada | `201 Created` |
 | Operação processada | `200 OK` |
-| Replay de operação processada | `200 OK` |
-| Replay de rejeição persistida | `422 Unprocessable Entity` |
-| Falha permanente persistida (`FAILED`), inclusive replay | `500 Internal Server Error` |
+| Rejeição financeira persistida e replay de resultado terminal | `200 OK`, com `status` e `failureCode` quando aplicável |
+| Resultado `FAILED` persistido, inclusive replay ou consulta | `200 OK`, com `status=FAILED` e `failureCode` |
 | Referência pendente | `202 Accepted` |
 | Entrada estruturalmente inválida | `400 Bad Request` |
 | Token ausente, inválido ou expirado | `401 Unauthorized` |
 | Identidade sem permissão | `403 Forbidden` |
 | Recurso inexistente ou não visível | `404 Not Found` |
 | Chave/hash ou identidade em conflito | `409 Conflict` |
-| Rejeição de negócio persistida | `422 Unprocessable Entity` |
+| Carteira incompatível com jogador ou moeda antes do aceite | `422 Unprocessable Entity` |
 | Dependência temporariamente indisponível | `503 Service Unavailable` |
+| Falha inesperada ou overflow na reconciliação | `500 Internal Server Error` |
 
-Todos os erros deverão usar um envelope estável com código, mensagem segura e correlation ID.
+Erros anteriores ao aceite usam o envelope estável `{code}`. O cliente pode fornecer `X-Correlation-ID` em envios e abertura de carteira; o valor é usado na trilha de logs, não repetido no corpo de erro.
 
-Contrato mínimo: sucesso retorna `transactionId`, `status`, `balance` histórico e `idempotentReplay`; rejeição persistida acrescenta `failureCode` e preserva o saldo observado; pendência retorna `transactionId`, `status`, referência e `idempotentReplay`, sem inventar saldo de processamento. `FAILED` informa `failureCode` sem saldo de sucesso. Erros anteriores ao aceite usam `{code, message, correlationId}`. `503` orienta retry com a mesma identidade e não afirma que um commit desconhecido falhou. GETs retornam `200` para transação visível em qualquer estado, incluindo seu código de falha. Replays preservam o resultado de negócio, mudando apenas `idempotentReplay` e metadados do transporte.
+Contrato mínimo: resultado terminal retorna `transactionId`, `status`, `idempotentReplay` e `balance` histórico quando presente; rejeição persistida acrescenta `failureCode` e preserva o saldo observado. Pendência retorna `transactionId`, `status` e `idempotentReplay`, sem inventar saldo de processamento; sua referência pode ser consultada pelos dados enviados e pela identidade da transação, mas não é repetida nessa resposta. `FAILED` informa `failureCode` sem saldo de sucesso. `503` orienta retry com a mesma identidade e não afirma que um commit desconhecido falhou. GETs retornam `200` para transação visível em qualquer estado, incluindo seu código de falha. Replays preservam o resultado de negócio, mudando apenas `idempotentReplay`.
 
-Limitar tamanho do body, comprimentos de identificadores, prazo de requisição e paginação. Em leituras, aplicar filtro de provedor na query; não carregar e expor resultado antes de autorizar. Health checks são públicos; `/metrics` deve usar acesso interno ou porta restrita.
+Limitar tamanho do body, comprimentos de identificadores, prazo de requisição e paginação. Em leituras, verificar o provedor do token antes de responder; transações de outro provedor não são expostas. Health checks são públicos; `/metrics` exige o papel interno.
 
 ## 14.2. Paginação do ledger
 
@@ -869,7 +870,7 @@ Limitar tamanho do body, comprimentos de identificadores, prazo de requisição 
 - cursor inválido retorna erro de contrato;
 - consultas subsequentes não devem repetir nem omitir registros dentro da ordenação definida.
 
-Adotar paginação ascendente por chave, com limite máximo 200. Cursor contém carteira, última chave e a versão máxima capturada na primeira página; restringir páginas seguintes a esse limite. Assim créditos posteriores não mudam o conjunto em paginação. `wallet_version` é gravada sob lock; timestamps e UUIDs isolados não garantem ordem de commit. Validar vínculo do cursor com a carteira e versão do formato, além de sua codificação opaca.
+Adotar paginação descendente por `(wallet_version, id)`, com limite máximo 100. O cursor contém a carteira, versão do formato e última chave retornada. Cada página seguinte usa chave estritamente menor; lançamentos novos recebem versão maior sob lock da carteira e não entram na travessia já iniciada. Como o ledger é append-only, os registros anteriores à última chave não desaparecem entre páginas. Validar o vínculo do cursor com a carteira e a versão do formato, além de sua codificação opaca. A primeira página de uma nova travessia pode naturalmente observar os lançamentos mais recentes.
 
 ---
 

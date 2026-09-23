@@ -36,9 +36,13 @@ type Store interface {
 }
 
 type LedgerCursor struct {
+	FormatVersion int    `json:"version"`
+	WalletID      string `json:"walletId"`
 	WalletVersion int64  `json:"walletVersion"`
 	EntryID       string `json:"entryId"`
 }
+
+const ledgerCursorFormatVersion = 1
 
 type LedgerPage struct {
 	Entries    []*ledger.Entry
@@ -110,7 +114,8 @@ func (s *Service) ListLedger(ctx context.Context, walletID, opaqueCursor string,
 			return LedgerPage{}, fmt.Errorf("%w: cursor", ErrInvalidInput)
 		}
 		var value LedgerCursor
-		if err := json.Unmarshal(decoded, &value); err != nil || value.WalletVersion < 1 || platformid.Validate(value.EntryID) != nil {
+		if err := json.Unmarshal(decoded, &value); err != nil || value.FormatVersion != ledgerCursorFormatVersion ||
+			value.WalletID != walletID || value.WalletVersion < 1 || platformid.Validate(value.EntryID) != nil {
 			return LedgerPage{}, fmt.Errorf("%w: cursor", ErrInvalidInput)
 		}
 		cursor = &value
@@ -123,7 +128,10 @@ func (s *Service) ListLedger(ctx context.Context, walletID, opaqueCursor string,
 	if len(entries) > limit {
 		page.Entries = entries[:limit]
 		last := page.Entries[len(page.Entries)-1]
-		encoded, err := json.Marshal(LedgerCursor{WalletVersion: last.WalletVersion(), EntryID: last.ID()})
+		encoded, err := json.Marshal(LedgerCursor{
+			FormatVersion: ledgerCursorFormatVersion, WalletID: walletID,
+			WalletVersion: last.WalletVersion(), EntryID: last.ID(),
+		})
 		if err != nil {
 			return LedgerPage{}, err
 		}

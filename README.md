@@ -62,7 +62,7 @@ curl -X POST -H "Authorization: Bearer $INTERNAL_TOKEN" http://localhost:8080/wa
 curl -H "Authorization: Bearer $INTERNAL_TOKEN" http://localhost:8080/metrics
 ```
 
-O cursor devolvido pelo ledger é opaco e deve ser reenviado sem alterações no parâmetro `cursor`.
+O ledger é paginado da versão mais recente para a mais antiga, com limite de 1 a 100 (padrão 50). O cursor devolvido é opaco, vinculado à carteira e deve ser reenviado sem alterações no parâmetro `cursor`. Lançamentos confirmados depois da primeira página não entram nas páginas seguintes dessa travessia; uma nova consulta sem cursor mostra o histórico atualizado.
 
 A reconciliação usa uma visão consistente e compara o saldo armazenado à soma dos créditos menos débitos do ledger, incluindo `OPENING`. Retorna `storedBalance`, `calculatedBalance`, `difference` (armazenado menos calculado), `consistent` e `checkedEntries`, sem alterar a carteira. Somatórios ou diferenças fora do intervalo monetário retornam `500` com `RECONCILIATION_OVERFLOW`; divergências dentro do intervalo aparecem na resposta, no log e na métrica. A rota aceita somente o papel `internal`; UUID inválido retorna `400` e carteira ausente retorna `404`.
 
@@ -200,6 +200,7 @@ go test -tags=integration ./internal/adapters/postgres
 go test -tags=integration ./internal/adapters/auth
 go test -tags=integration ./internal/adapters/sqs
 go test -tags=integration -run TestThreeProcessesSerializeAndReplayAfterRestart -v ./internal/bootstrap
+go test -tags=integration -run TestLedgerCursorRemainsStableWhileNewMovementsCommit -v ./internal/bootstrap
 go test -tags=integration -run TestPendingReferencesResolveAndExpireAfterFullProcessRestart -v ./internal/bootstrap
 go test -tags=integration -run TestTemporaryPostgresAndSQSOutagesRecover -v ./internal/bootstrap
 ```
