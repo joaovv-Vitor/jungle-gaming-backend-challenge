@@ -1,6 +1,7 @@
 package sqsadapter
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -87,6 +88,34 @@ func TestConsumerLeavesInvalidMessageForRedrive(t *testing.T) {
 	}
 }
 
+func TestConsumerLogsExcludeUntrustedErrorDetails(t *testing.T) {
+	const secret = "sensitive-consumer-error-sentinel"
+	var logs bytes.Buffer
+	broker := &consumerTestBroker{deleteErrors: []error{errors.New(secret)}}
+	consumer := newConsumer(broker, &consumerTestIngester{err: errors.New(secret)}, config.Config{
+		SQSConsumerName: "wager-transactions", SQSProcessing: time.Second,
+		SQSPingTimeout: time.Second, SQSConcurrency: 1,
+	}, slog.New(slog.NewJSONHandler(&logs, nil)), metrics.New())
+	consumer.queueURL = "queue-url"
+
+	consumer.handle(context.Background(), Message{ID: "invalid-broker-message", Body: `{"` + secret + `":true}`})
+	consumer.handle(context.Background(), Message{ID: "processing-broker-message", Body: consumerTestMessage})
+	consumer.ingestion = &consumerTestIngester{transaction: consumerTestTransaction(t)}
+	consumer.handle(context.Background(), Message{ID: "delete-broker-message", Body: consumerTestMessage})
+
+	for _, expected := range []string{
+		"invalid SQS message left for redrive", "SQS message processing failed",
+		"SQS message committed but delete failed",
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("missing worker log %q: %s", expected, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), secret) || !strings.Contains(logs.String(), `"reason":"invalid_message"`) {
+		t.Fatalf("untrusted error detail leaked or safe reason missing: %s", logs.String())
+	}
+}
+
 func TestConsumerLimitsReceiveBatchToAvailableWorkers(t *testing.T) {
 	consumer := newConsumer(&consumerTestBroker{}, &consumerTestIngester{}, config.Config{
 		SQSReceiveBatch: 10, SQSConcurrency: 2,
@@ -132,10 +161,14 @@ func gatherMetrics(t *testing.T, instrumentation *metrics.Metrics) string {
 type consumerTestIngester struct {
 	transaction *domainwagering.Transaction
 	calls       int
+	err         error
 }
 
 func (i *consumerTestIngester) Consume(context.Context, string, applicationingestion.Message) (applicationingestion.Result, error) {
 	i.calls++
+	if i.err != nil {
+		return applicationingestion.Result{}, i.err
+	}
 	replay := i.calls > 1
 	return applicationingestion.Result{
 		WagerResult: applicationwagering.Result{Transaction: i.transaction, Replay: replay},

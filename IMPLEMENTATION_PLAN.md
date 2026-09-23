@@ -44,14 +44,21 @@ Atualizado em 23 de setembro de 2026:
 - Verificações da Fase 8 concluídas: dois publishers/pools disputando eventos, recuperação de lease abandonado, rejeição de token antigo, falha antes do envio, falha após envio e antes da confirmação, reenvio com o mesmo `eventId` e publicação real na fila FIFO do LocalStack.
 - Fase 9 implementada: endpoint interno de reconciliação em snapshot somente leitura, cálculo monetário sem perda de precisão, detecção de overflow e divergências, logs de correlação e métricas de transações, workers, filas, readiness e shutdown.
 - Verificações da Fase 9 incluem saldo com e sem lançamentos, diferença negativa, overflow, visibilidade antes/depois de commit financeiro, autorização da rota, recuperação do readiness e labels de métricas limitados.
-- Fase 10 em andamento: teste de integração sobe três processos reais do binário com PIDs, portas e pools distintos; confirma a disputa de duas apostas, 50 entregas HTTP idênticas, progresso de uma carteira independente enquanto outra aguarda um lock observado no PostgreSQL, encerramento por SIGTERM e replay após reinício completo. A verificação final compara saldo, versão, ledger e contagem de eventos da outbox.
+- Fase 10 concluída no escopo local do teste técnico: o teste de integração sobe três processos reais do binário com PIDs, portas e pools distintos; confirma a disputa de duas apostas, 50 entregas HTTP idênticas, progresso de uma carteira independente enquanto outra aguarda um lock observado no PostgreSQL, encerramento por SIGTERM e replay após reinício completo. A verificação final compara saldo, versão, ledger e contagem de eventos da outbox.
 - Falhas temporárias da Fase 10 verificadas com proxies locais isolados: perda de conexão PostgreSQL derruba apenas o readiness, responde `503 TRANSIENT_FAILURE` sem confirmar resultado e permite retry pela mesma identidade após recuperação; perda temporária do SQS preserva o commit financeiro na outbox e publica os eventos depois da volta do broker. Liveness permaneceu disponível e o saldo final foi conferido contra o ledger. O teste não interrompe containers compartilhados.
-- Hardening da Fase 10: migration 3 formaliza `next_attempt_at <= expires_at` em referências pendentes, normalizando registros antigos; claims de referência e outbox usam `statement_timestamp()` para transformar o prazo em condição de índice. `EXPLAIN` local confirmou o uso de `wager_pending_reference_work`, `outbox_pending_work`, `ledger_wallet_page` e da PK da inbox; a estatística da outbox faz index-only scan. O timeout global de parada do Fx acompanha a soma dos limites dos hooks, e o grace period do Compose foi ampliado para comportá-lo.
-- Auditoria da Fase 10 registrada em `REQUIREMENTS_AUDIT.md`: teste de autorização real inclui dois provedores e ausência de efeitos financeiros para acessos indevidos; há templates IAM de menor privilégio, mas o LocalStack Community aceitou credenciais fictícias e não demonstra negação no broker. A matriz permanece aberta onde a evidência é parcial.
+- Hardening da Fase 10: migration 3 formaliza `next_attempt_at <= expires_at` em referências pendentes, normalizando registros antigos; claims de referência e outbox usam `statement_timestamp()` para transformar o prazo em condição de índice. Ao reivindicar, avançam `next_attempt_at` até o fim do lease (limitado por `expires_at` na referência), evitando que itens reservados continuem na faixa vencida do índice. `EXPLAIN` com 100 mil linhas sintéticas por tabela confirmou os índices de claim, `ledger_wallet_page` e a PK da inbox; o ensaio também compara 5 mil itens vencidos sob lease antes/depois do ajuste. A estatística da outbox percorre os eventos pendentes. O timeout global de parada do Fx acompanha a soma dos limites dos hooks, e o grace period do Compose foi ampliado para comportá-lo.
+- Auditoria da Fase 10 registrada em `REQUIREMENTS_AUDIT.md`: teste de autorização real inclui dois provedores e ausência de efeitos financeiros para acessos indevidos; há templates IAM de menor privilégio, mas o LocalStack Community aceitou credenciais fictícias e não demonstra negação no broker. Essa limitação está documentada e a execução em AWS não integra o critério de conclusão deste teste técnico.
 - Corrida `REFUND` × `ROLLBACK` e rollback debitante sem fundos verificados em PostgreSQL real; uma rejeição reproduz o saldo histórico após nova operação. Um teste de processo real confirmou referência pendente preservada por SIGTERM, resolução tardia e expiração com evento terminal após restart.
 - Paginação do ledger alinhada ao contrato do §14.2: ordem descendente, limite 100 e cursor versionado/vinculado à carteira. Um teste HTTP real percorre o histórico enquanto novos lançamentos confirmam e verifica ausência de duplicatas/omissões, ordenação e erros de cursor.
 - `SIGTERM` durante consumo SQS verificado com fila FIFO isolada: o primeiro processo aguarda um lock PostgreSQL, cancela sem confirmar inbox/efeito e libera a mensagem antes da visibility de 30 segundos; outra instância conclui o tratamento e o delete com efeito financeiro único.
-- Próxima etapa: fechar os demais cenários parciais da matriz e a documentação de entrega. Repetir análise de planos com dados representativos antes de afirmar desempenho em escala.
+- O ciclo de migrations `up/down/up` passou em um schema PostgreSQL descartável, com conferência de versões e da constraint de prazo. Um teste de contrato publicou os sete eventos de OPENING, BET, LOSS, rejeição e referência pendente em fila FIFO isolada, comparou as mensagens aos snapshots da outbox e confirmou os vínculos de causação. As suítes PostgreSQL/SQS passaram com `-race`.
+- Um segundo projeto Compose foi construído e iniciado com volume PostgreSQL novo e portas próprias. Readiness respondeu `200`, migrations `1,2,3` e as três filas FIFO/DLQ foram provisionadas; token real do provider B permitiu leitura própria (`404` para ID ausente), negou leitura do provider A (`403`) e token interno abriu carteira (`201`). Os containers e o volume desse ensaio foram removidos.
+- O teste HTTP com Keycloak real agora inspeciona o log do processo após autenticação, operação financeira e acessos negados, exigindo o registro de resultado e a ausência de tokens, segredos de clients e marcador enviado no corpo/chave idempotente.
+- A expiração também foi provada com token assinado pelo Keycloak real: um realm exclusivo de teste limita a vida do access token a dois segundos; o verificador aceita o token novo e o rejeita após o `exp`. O teste remove o realm ao terminar.
+- Logs de falha dos workers SQS, referência e outbox passaram a usar categorias limitadas em vez de mensagens brutas de dependências ou da entrada; `outbox_events.last_error` guarda `publish_<categoria>`. Testes injetam marcador sensível em JSON inválido, erros de consumo, delete, referência, claim e publicação e verificam ausência nos registros persistidos e emitidos.
+- A Fase 11 foi concluída no escopo local: um snapshot Git temporário com as alterações atuais foi clonado em checkout limpo e iniciou outra stack Compose com volume novo e portas próprias. Build, readiness, migrations `1,2,3`, filas FIFO/DLQ, token importado do provider B, isolamento entre providers, abertura de carteira, `go test -race ./...` e `go vet ./...` passaram. O projeto, o volume e o checkout temporários foram removidos sem criar commit no repositório principal.
+- O adaptador SQS aceita endpoint e credenciais estáticas vazios para usar o endpoint AWS e a cadeia padrão de credenciais do SDK; o Compose preserva a configuração explícita do LocalStack. `TestAWSIAMQueuePermissions` fica disponível como verificação opcional fora do escopo local. A matriz completa de integração com PostgreSQL, Keycloak, LocalStack e processos reais passou com `-race` após a correção das credenciais locais do harness; `go test -race ./...` e `go vet ./...` também passaram.
+- As fases 0–11 estão concluídas para a entrega local do teste técnico. A verificação opcional de IAM em AWS e medições com dados/carga reais permanecem fora desse escopo; o ensaio SQL sintético está reproduzível e não é alegação de desempenho em produção.
 
 ---
 
@@ -1437,43 +1444,43 @@ Partidas dobradas, tracing e testes de carga somente deverão ser considerados d
 
 ## 22. Definition of Done geral
 
-A implementação estará concluída quando:
+A implementação local do teste técnico estará concluída quando (a limitação de IAM efetivo no LocalStack está registrada em `REQUIREMENTS_AUDIT.md`):
 
-- [ ] todos os endpoints de negócio exigirem autenticação adequada;
-- [ ] providers estiverem isolados em escrita, leitura e replay;
-- [ ] não existir uso de ponto flutuante para dinheiro;
-- [ ] saldo negativo for impossível no domínio e no banco;
-- [ ] ledger for append-only e reconciliável;
-- [ ] duplicatas HTTP, SQS e cruzadas produzirem um único efeito;
-- [ ] resultados históricos forem reproduzidos corretamente;
-- [ ] três instâncias processarem concorrentemente sem lost updates;
-- [ ] inbox e efeitos compartilharem a mesma transação;
-- [ ] outbox e efeitos compartilharem a mesma transação;
-- [ ] publicações abandonadas forem retomadas;
-- [ ] referências pendentes sobreviverem a reinícios;
-- [ ] DLQ e retries estiverem demonstrados;
-- [ ] graceful shutdown estiver testado;
-- [ ] reconciliação usar uma visão consistente;
-- [ ] métricas e logs cobrirem os fluxos críticos;
-- [ ] migrations up/down funcionarem;
-- [ ] `go test ./...` passar;
-- [ ] `go test -race ./...` passar nos testes aplicáveis;
-- [ ] `go vet ./...` passar;
-- [ ] código estiver formatado com `gofmt`;
-- [ ] Docker Compose subir a solução completa;
-- [ ] README e ARCHITECTURE permitirem reprodução a partir de checkout limpo;
-- [ ] constraints, grants e triggers forem testados com a role real da aplicação;
-- [ ] cadeia de reversões, referência opcional de WIN e códigos de erro estiverem documentados e testados;
-- [ ] deduplicação da aplicação tiver recebimentos repetidos comprovados;
-- [ ] nenhum evento confirmado for descartado ao esgotar tentativas;
-- [ ] política do produtor SQS e limites do emulador tiverem evidência explícita;
-- [ ] todos os itens da matriz da seção 24 tiverem comando reproduzível e resultado registrado.
+- [x] todos os endpoints de negócio exigirem autenticação adequada;
+- [x] providers estiverem isolados em escrita, leitura e replay;
+- [x] não existir uso de ponto flutuante para dinheiro;
+- [x] saldo negativo for impossível no domínio e no banco;
+- [x] ledger for append-only e reconciliável;
+- [x] duplicatas HTTP, SQS e cruzadas produzirem um único efeito;
+- [x] resultados históricos forem reproduzidos corretamente;
+- [x] três instâncias processarem concorrentemente sem lost updates;
+- [x] inbox e efeitos compartilharem a mesma transação;
+- [x] outbox e efeitos compartilharem a mesma transação;
+- [x] publicações abandonadas forem retomadas;
+- [x] referências pendentes sobreviverem a reinícios;
+- [x] DLQ e retries estiverem demonstrados;
+- [x] graceful shutdown estiver testado;
+- [x] reconciliação usar uma visão consistente;
+- [x] métricas e logs cobrirem os fluxos críticos;
+- [x] migrations up/down funcionarem;
+- [x] `go test ./...` passar;
+- [x] `go test -race ./...` passar nos testes aplicáveis;
+- [x] `go vet ./...` passar;
+- [x] código estiver formatado com `gofmt`;
+- [x] Docker Compose subir a solução completa;
+- [x] README e ARCHITECTURE permitirem reprodução a partir de checkout limpo;
+- [x] constraints, grants e triggers forem testados com a role real da aplicação;
+- [x] cadeia de reversões, referência opcional de WIN e códigos de erro estiverem documentados e testados;
+- [x] deduplicação da aplicação tiver recebimentos repetidos comprovados;
+- [x] nenhum evento confirmado for descartado ao esgotar tentativas;
+- [x] política do produtor SQS e limites do emulador tiverem evidência explícita;
+- [x] todos os itens da matriz da seção 24 tiverem comando reproduzível e resultado registrado.
 
 ---
 
 ## 23. Próximo passo imediato
 
-A auditoria linha a linha da matriz está em `REQUIREMENTS_AUDIT.md`. Fechar os cenários HTTP/SIGTERM/eventos/observabilidade ainda parciais; validar o controle de acesso ao broker em ambiente com IAM enforcement antes de marcá-lo concluído. Em seguida, ensaiar checkout/volume limpo e revisar a entrega. Reavaliar planos SQL com volume representativo antes de alegar desempenho em escala.
+A auditoria linha a linha da matriz está em `REQUIREMENTS_AUDIT.md`. A Fase 10 foi concluída com os cenários locais exigidos; a negação efetiva por IAM não é demonstrável no LocalStack Community e sua verificação em AWS permanece opcional, sem ser declarada coberta. Reavaliar planos SQL com dados e carga do ambiente alvo antes de alegar desempenho em escala.
 
 ---
 

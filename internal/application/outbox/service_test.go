@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,13 +56,15 @@ func (p *servicePublisher) Publish(_ context.Context, event Event) error {
 }
 
 func TestFailedSendReschedulesWithoutConfirming(t *testing.T) {
+	const secret = "sensitive-publisher-error-sentinel"
 	store := &serviceStore{claims: []Event{{ID: "event-1", GroupID: "wallet-1", Token: "lease-1", Payload: []byte(`{}`), Attempts: 1}}}
-	publisher := &servicePublisher{err: errors.New("destination unavailable")}
+	publisher := &servicePublisher{err: errors.New("destination unavailable: " + secret)}
 	service := NewService(store, publisher, config.Config{OutboxLease: 30 * time.Second})
 	service.jitter = func(time.Duration) time.Duration { return 0 }
 	before := time.Now()
 	outcome, err := service.ProcessOne(context.Background())
-	if outcome != OutcomeRetry || err == nil || store.retried != 1 || store.confirmed != 0 || store.lastError != "destination unavailable" {
+	if outcome != OutcomeRetry || err == nil || store.retried != 1 || store.confirmed != 0 ||
+		store.lastError != "publish_unexpected" || strings.Contains(store.lastError, secret) {
 		t.Fatalf("outcome=%s error=%v store=%+v", outcome, err, store)
 	}
 	if store.retryAfter.Before(before.Add(time.Second)) || store.retryAfter.After(time.Now().Add(2*time.Second)) {

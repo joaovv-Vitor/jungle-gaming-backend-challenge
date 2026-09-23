@@ -1,6 +1,6 @@
 # Processamento Distribuído de Apostas em Go
 
-Implementação em andamento do desafio descrito em `teste tecnoco.md`. A arquitetura e a sequência de trabalho estão em `ARCHITECTURE.md` e `IMPLEMENTATION_PLAN.md`.
+Implementação do desafio descrito em `teste tecnoco.md`. A arquitetura, as verificações e a sequência de trabalho estão em `ARCHITECTURE.md`, `REQUIREMENTS_AUDIT.md` e `IMPLEMENTATION_PLAN.md`.
 
 ## Estado atual
 
@@ -15,8 +15,14 @@ O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloa
 
 ```sh
 cp .env.example .env
+docker compose up -d postgres keycloak localstack
+set -a
+. ./.env
+set +a
 go run ./cmd/server
 ```
+
+O `go run` usa as variáveis exportadas pelo shell; ele não lê `.env` por conta própria. Inicie as dependências antes do servidor. Se alterar as portas do Compose, atualize também `APP_DATABASE_URL`, `APP_OIDC_ISSUER`, `APP_OIDC_JWKS_URL` e `APP_SQS_ENDPOINT` em `.env` para os endereços acessíveis pelo host.
 
 Verifique o processo:
 
@@ -114,11 +120,29 @@ docker compose exec -T localstack awslocal sqs send-message \
 
 O `messageId` do envelope identifica a inbox. Reentregas com o mesmo conteúdo são confirmadas sem reaplicar o efeito; o mesmo `messageId` com conteúdo diferente permanece na fila para redrive. Um `messageId` novo ainda é deduplicado pelas identidades financeiras compartilhadas com o HTTP.
 
-A fila compartilhada pressupõe um produtor interno confiável; `providerId` no JSON não é uma credencial. Os templates de políticas IAM para roles distintas do aplicativo e do produtor estão em `deploy/aws/`. O LocalStack Community usado pelo Compose não demonstra enforcement: credenciais fictícias conseguiram consultar a fila. Portanto, a negação de acesso ao broker ainda precisa ser provada em AWS SQS ou em ambiente com IAM enforcement. Consulte `REQUIREMENTS_AUDIT.md` para o estado de cada requisito.
+A fila compartilhada pressupõe um produtor interno confiável; `providerId` no JSON não é uma credencial. Os templates de políticas IAM para roles distintas do aplicativo e do produtor estão em `deploy/aws/`. O LocalStack Community usado pelo Compose não demonstra enforcement: credenciais fictícias conseguiram consultar a fila. Essa limitação está documentada em `REQUIREMENTS_AUDIT.md`; a execução em AWS não é necessária para este teste técnico.
+
+Em AWS, configure `APP_SQS_REGION` para a região das filas e deixe `APP_SQS_ENDPOINT`, `APP_SQS_ACCESS_KEY_ID` e `APP_SQS_SECRET_ACCESS_KEY` vazios. O adaptador usa então o endpoint normal do SQS e a [cadeia padrão de credenciais do AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configure-gosdk.html), incluindo a role IAM atribuída ao processo. O Compose continua passando endpoint e credenciais estáticas de teste para o LocalStack. Se fornecer credenciais estáticas, informe acesso e segredo juntos.
+
+Verificação opcional de acesso efetivo em AWS: prepare **uma conta de teste** com as três filas FIFO vazias (`wager-transactions.fifo`, `wager-transactions-dlq.fifo`, `wager-events.fifo`) e sem consumidores ativos. Aplique as políticas de `deploy/aws/` a duas roles distintas: app e produtor interno; a terceira identidade não deve ter acesso a essas filas. Revise também queue policies e demais controles da conta. Configure três perfis de credenciais AWS que assumam essas identidades e execute:
+
+```sh
+IAM_TEST_REGION=us-east-1 \
+IAM_TEST_INPUT_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/wager-transactions.fifo \
+IAM_TEST_DLQ_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/wager-transactions-dlq.fifo \
+IAM_TEST_OUTPUT_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/wager-events.fifo \
+IAM_TEST_APP_PROFILE=wager-app-test \
+IAM_TEST_PRODUCER_PROFILE=wager-producer-test \
+IAM_TEST_UNTRUSTED_PROFILE=wager-untrusted-test \
+IAM_TEST_ISOLATED_QUEUES=yes \
+go test -race -tags=integration -run '^TestAWSIAMQueuePermissions$' -count=1 -v ./internal/adapters/sqs
+```
+
+O teste confirma identidades IAM distintas, permite o envio do produtor à entrada, o recebimento, a alteração de visibilidade e o delete pelo app, a leitura das filas pelo app e a publicação do app na saída. Exige negação real para envios, consumo, delete, alteração de visibilidade e leitura fora dessas permissões. Ele envia uma mensagem a cada uma das filas de entrada e saída: apaga a da entrada, mas a da saída permanece até que a fila descartável seja removida. Sem as variáveis, o teste registra `SKIP`; isso não comprova a política. Falha de rede ou fila inexistente também reprova a verificação. Não configure endpoints personalizados de SQS ou STS nos perfis usados pelo teste.
 
 Eventos financeiros são gravados na outbox no mesmo commit da operação e publicados depois em `wager-events.fifo`. O envio é *at-least-once*: se houver queda após o envio e antes da confirmação no banco, o mesmo `eventId` pode ser publicado novamente. Consumidores da fila de eventos devem deduplicar por `eventId`; a deduplicação temporária da FIFO não substitui essa regra. `MessageGroupId` usa a carteira, e `MessageDeduplicationId` usa o `eventId`. Publicações de workers distintos podem chegar fora da ordem dos commits; `walletVersion` permite identificar lacunas nos eventos de saldo.
 
-O publisher usa `APP_SQS_OUTPUT_QUEUE` (padrão `wager-events.fifo`), `APP_OUTBOX_WORKERS` (`2`), `APP_OUTBOX_POLL_INTERVAL` (`500ms`), `APP_OUTBOX_PROCESSING_TIMEOUT` (`10s`) e `APP_OUTBOX_LEASE` (`30s`). Falhas mantêm o evento na outbox, com `attempts`, `next_attempt_at` e `last_error` consultáveis no PostgreSQL; não há descarte após um número fixo de tentativas. Configure o lease acima do timeout de processamento.
+O publisher usa `APP_SQS_OUTPUT_QUEUE` (padrão `wager-events.fifo`), `APP_OUTBOX_WORKERS` (`2`), `APP_OUTBOX_POLL_INTERVAL` (`500ms`), `APP_OUTBOX_PROCESSING_TIMEOUT` (`10s`) e `APP_OUTBOX_LEASE` (`30s`). Falhas mantêm o evento na outbox, com `attempts`, `next_attempt_at` e `last_error` consultáveis no PostgreSQL. `last_error` armazena uma categoria segura (`publish_timeout`, `publish_network`, `publish_database` ou `publish_unexpected`), sem a mensagem bruta da dependência; não há descarte após um número fixo de tentativas. Configure o lease acima do timeout de processamento.
 
 O endpoint `/metrics` exige token `internal`. As métricas cobrem resultados financeiros após commit, replays, rejeições, latência, entregas SQS, tamanho aproximado da DLQ, tentativas de referências, backlog e idade da outbox, publicações e republicações, falhas de readiness, divergências de reconciliação e duração do shutdown. Os labels usam categorias limitadas; IDs financeiros e de mensagens ficam apenas em logs estruturados. A fila de saída também participa do readiness. A DLQ monitorada usa `APP_SQS_DLQ_QUEUE` (padrão `wager-transactions-dlq.fifo`).
 
@@ -186,7 +210,7 @@ docker compose exec -T postgres \
 
 As credenciais de `.env.example` são apenas para o ambiente local.
 
-Para inspecionar os planos críticos sem executar os workers, use `docker compose exec -T postgres psql -U wager_admin -d wagering < scripts/explain_worker_queries.sql`. Em dados locais pequenos, o planner usa `wager_pending_reference_work` e `outbox_pending_work` com `Index Cond` no prazo, `ledger_wallet_page` para paginação e a chave primária da inbox. `EXPLAIN` não é benchmark de carga; reavalie estatísticas e planos em dados representativos.
+Para inspecionar os planos críticos sem executar os workers, use `docker compose exec -T postgres psql -U wager_admin -d wagering < scripts/explain_worker_queries.sql`. Em dados locais pequenos, o planner usa `wager_pending_reference_work` e `outbox_pending_work` com `Index Cond` no prazo, `ledger_wallet_page` para paginação e a chave primária da inbox. Para repetir a análise com 100 mil registros sintéticos em cada tabela, execute `docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U wager_admin -d wagering < scripts/explain_representative_queries.sql`. Esse segundo script cria apenas tabelas temporárias, aplica `ANALYZE`/`VACUUM` nelas e compara claims com 5 mil itens vencidos sob lease ativo antes e depois de alinhar a próxima elegibilidade ao prazo do lease. As tabelas somem ao fechar a sessão. Os tempos são diagnósticos locais; uma medição de capacidade exige distribuição de dados e carga reais do ambiente alvo.
 
 O prazo global de parada do Fx é calculado a partir dos limites HTTP, SQS, referência e outbox (95 segundos com os defaults). No Compose, `APP_STOP_GRACE_PERIOD` é 100 segundos por padrão; mantenha-o maior que o orçamento global ao personalizar timeouts. O SQS usa processamento de 20 segundos, visibility de 60 segundos e janela de shutdown de 30 segundos; referências e outbox usam processamento de 10 segundos e lease de 30 segundos.
 
@@ -198,7 +222,10 @@ go test -race ./...
 go vet ./...
 go test -tags=integration ./internal/adapters/postgres
 go test -tags=integration ./internal/adapters/auth
+go test -tags=integration -run TestKeycloakIssuedTokenIsRejectedAfterExpiry -v ./internal/adapters/auth
 go test -tags=integration ./internal/adapters/sqs
+go test -tags=integration -run TestMigrationsUpDownUpInDisposableSchema -v ./internal/adapters/postgres
+go test -tags=integration -run TestFourEventContractsReachSQSFromFinancialOperations -v ./internal/adapters/sqs
 go test -tags=integration -run TestThreeProcessesSerializeAndReplayAfterRestart -v ./internal/bootstrap
 go test -tags=integration -run TestLedgerCursorRemainsStableWhileNewMovementsCommit -v ./internal/bootstrap
 go test -tags=integration -run TestSIGTERMReleasesInFlightSQSMessageForAnotherProcess -v ./internal/bootstrap
@@ -206,4 +233,18 @@ go test -tags=integration -run TestPendingReferencesResolveAndExpireAfterFullPro
 go test -tags=integration -run TestTemporaryPostgresAndSQSOutagesRecover -v ./internal/bootstrap
 ```
 
-Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. Para evitar disputa pelas fixtures de referência e outbox, pare apenas o app durante as suítes PostgreSQL/SQS e o teste de restart de referências (`docker compose stop app`) e religue-o depois (`docker compose start app`). O teste multiprocesso `internal/bootstrap` constrói o binário e inicia três processos adicionais em portas livres; pode rodar com o app do Compose ativo e registra seus PIDs com `-v`. Ele exercita concorrência, lock entre carteiras e replay depois de reiniciar todas as três instâncias. O teste de referências pendentes encerra o processo inicial, inicia outro, resolve uma referência tardia e rejeita outra vencida, verificando outbox e replay. O teste de `SIGTERM` no SQS cria e remove uma fila FIFO isolada, bloqueia o consumo no PostgreSQL e comprova liberação antecipada da visibility e retomada por outro processo. O teste de indisponibilidade usa uma instância própria e proxies de falha locais para PostgreSQL/SQS; não para os containers, verifica readiness/liveness e a publicação da outbox após recuperação. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final. O cenário de divergência da reconciliação usa a role administrativa local para alterar somente a carteira criada pelo teste e restaura seu saldo; em outra configuração, informe `APP_DATABASE_ADMIN_URL`.
+Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. Para evitar disputa pelas fixtures de referência e outbox, pare apenas o app durante as suítes PostgreSQL/SQS e o teste de restart de referências (`docker compose stop app`) e religue-o depois (`docker compose start app`). O teste de expiração usa as credenciais administrativas locais (`KEYCLOAK_ADMIN` e `KEYCLOAK_ADMIN_PASSWORD`, com os padrões do Compose), cria um realm temporário e o remove ao terminar. O teste de migrations usa a role administrativa, cria um schema exclusivo e o remove ao terminar; configure `APP_DATABASE_ADMIN_URL` se necessário. O teste dos quatro contratos de evento cria uma carteira e fila FIFO isoladas e compara as mensagens aos snapshots persistidos na outbox. O teste multiprocesso `internal/bootstrap` constrói o binário e inicia três processos adicionais em portas livres; pode rodar com o app do Compose ativo e registra seus PIDs com `-v`. Ele exercita concorrência, lock entre carteiras e replay depois de reiniciar todas as três instâncias. O teste de referências pendentes encerra o processo inicial, inicia outro, resolve uma referência tardia e rejeita outra vencida, verificando outbox e replay. O teste de `SIGTERM` no SQS cria e remove uma fila FIFO isolada, bloqueia o consumo no PostgreSQL e comprova liberação antecipada da visibility e retomada por outro processo. O teste de indisponibilidade usa uma instância própria e proxies de falha locais para PostgreSQL/SQS; não para os containers, verifica readiness/liveness e a publicação da outbox após recuperação. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final. O cenário de divergência da reconciliação usa a role administrativa local para alterar somente a carteira criada pelo teste e restaura seu saldo; em outra configuração, informe `APP_DATABASE_ADMIN_URL`.
+
+Para ensaiar um volume novo sem apagar o banco principal, use outro nome de projeto e portas livres. O ensaio final de 23/09/2026 foi feito a partir de um checkout Git temporário limpo contendo as alterações atuais: confirmou build, readiness, migrations `1,2,3`, as três filas e o token recém-importado do provider B; uma leitura própria de ID ausente retornou `404`, acesso cruzado ao provider A retornou `403` e a abertura de carteira com token interno retornou `201`. `go test -race ./...` e `go vet ./...` passaram nesse checkout. A stack e o volume isolados foram removidos ao final.
+
+```sh
+KEYCLOAK_PORT=18081 POSTGRES_PORT=15432 LOCALSTACK_PORT=14566 APP_HTTP_PORT=18080 \
+  docker compose -p wager-clean-smoke up -d --build
+curl -f http://localhost:18080/health/ready
+docker compose -p wager-clean-smoke exec -T postgres \
+  psql -U wager_admin -d wagering -Atc "SELECT string_agg(version::text, ',' ORDER BY version) FROM schema_migrations"
+docker compose -p wager-clean-smoke exec -T localstack awslocal sqs list-queues
+docker compose -p wager-clean-smoke down -v
+```
+
+Troque as portas se estiverem ocupadas. Execute `down -v` somente com o nome do projeto descartável; ele remove o volume desse projeto. Para conferir o provider B, use o exemplo de token acima com `client_id=provider-b`, `client_secret=provider-b-local` e porta `18081`.

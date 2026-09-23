@@ -8,7 +8,52 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 )
+
+func TestBrokerUsesAWSCredentialChainWithoutCustomEndpoint(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "chain-access")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "chain-secret")
+	t.Setenv("AWS_SESSION_TOKEN", "chain-token")
+	t.Setenv("AWS_ENDPOINT_URL", "")
+	t.Setenv("AWS_ENDPOINT_URL_SQS", "")
+
+	broker, err := NewBroker(config.Config{SQSRegion: "us-east-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := broker.client.(*awssqs.Client).Options()
+	if options.BaseEndpoint != nil {
+		t.Fatalf("AWS service endpoint was overridden: %q", *options.BaseEndpoint)
+	}
+	credentials, err := options.Credentials.Retrieve(context.Background())
+	if err != nil || credentials.AccessKeyID != "chain-access" || credentials.SecretAccessKey != "chain-secret" ||
+		credentials.SessionToken != "chain-token" {
+		t.Fatalf("SDK credential chain = %+v, error = %v", credentials, err)
+	}
+}
+
+func TestBrokerLocalStaticCredentialsOverrideSDKChain(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "chain-access")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "chain-secret")
+
+	broker, err := NewBroker(config.Config{
+		SQSRegion: "us-east-1", SQSEndpoint: "http://localhost:4566",
+		SQSAccessKeyID: "local-access", SQSSecretAccessKey: "local-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := broker.client.(*awssqs.Client).Options()
+	if options.BaseEndpoint == nil || *options.BaseEndpoint != "http://localhost:4566" {
+		t.Fatalf("local SQS endpoint = %v", options.BaseEndpoint)
+	}
+	credentials, err := options.Credentials.Retrieve(context.Background())
+	if err != nil || credentials.AccessKeyID != "local-access" || credentials.SecretAccessKey != "local-secret" {
+		t.Fatalf("local SQS credentials = %+v, error = %v", credentials, err)
+	}
+}
 
 func TestBrokerReceiveRequestsAndParsesReceiveCount(t *testing.T) {
 	client := &brokerTestClient{

@@ -11,6 +11,7 @@ import (
 	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reference"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/safeerror"
 )
 
 type Worker struct {
@@ -74,7 +75,7 @@ func (w *Worker) run(parent context.Context) {
 			w.metrics.RecordReferenceAttempt(result)
 		}
 		if err != nil && parent.Err() == nil {
-			w.logger.Error("reference processing failed", "error", err)
+			w.logger.Error("reference processing failed", "reason", safeerror.Reason(err))
 		}
 		if outcome == application.OutcomeCompleted {
 			w.logger.Info("pending reference completed")

@@ -6,8 +6,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,13 +47,14 @@ func TestRealKeycloakAuthorizationHasNoUnauthorizedFinancialEffects(t *testing.T
 	}
 	walletID := opened.stringField(t, "id")
 	externalID := "authorized-" + walletID
+	secretSentinel := "sensitive-auth-" + walletID
 	bet := map[string]any{
 		"providerId": "provider-a", "externalTransactionId": externalID,
 		"playerId": playerID, "walletId": walletID, "roundId": "auth-round",
-		"gameId": "auth-game", "kind": "BET",
+		"gameId": secretSentinel, "kind": "BET",
 		"money": map[string]string{"amount": "20.00", "currency": "BRL"},
 	}
-	created := requestJSON(t, ctx, port, http.MethodPost, "/wagering/transactions", providerToken, externalID, bet)
+	created := requestJSON(t, ctx, port, http.MethodPost, "/wagering/transactions", providerToken, secretSentinel, bet)
 	if created.status != http.StatusOK || created.field("status") != "PROCESSED" {
 		t.Fatalf("authorized bet: %d %s", created.status, created.body)
 	}
@@ -120,6 +123,20 @@ func TestRealKeycloakAuthorizationHasNoUnauthorizedFinancialEffects(t *testing.T
 	if visible.status != http.StatusOK || visible.field("transactionId") != transactionID {
 		t.Fatalf("authorized transaction read: %d %s", visible.status, visible.body)
 	}
+	logPath := process.log.Name()
 	process.stop(t)
 	process = nil
+	logs, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logs), "wager submission handled") {
+		t.Fatal("expected financial operation log is missing")
+	}
+	for _, secret := range []string{internalToken, providerToken, otherProviderToken,
+		secretSentinel, "internal-service-local", "provider-a-local", "provider-b-local"} {
+		if strings.Contains(string(logs), secret) {
+			t.Fatalf("process log exposed a credential or financial payload sentinel")
+		}
+	}
 }

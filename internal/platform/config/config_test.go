@@ -83,6 +83,32 @@ func TestLoadRejectsIncompatibleSQSConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadAllowsAWSDefaultSQSEndpointAndCredentialChain(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("APP_SQS_ENDPOINT", "")
+	t.Setenv("APP_SQS_ACCESS_KEY_ID", "")
+	t.Setenv("APP_SQS_SECRET_ACCESS_KEY", "")
+
+	cfg, err := Load()
+	if err != nil || cfg.SQSEndpoint != "" || cfg.SQSAccessKeyID != "" || cfg.SQSSecretAccessKey != "" {
+		t.Fatalf("AWS SQS configuration = %+v, error = %v", cfg, err)
+	}
+}
+
+func TestLoadRejectsIncompleteSQSStaticCredentials(t *testing.T) {
+	for _, values := range []struct{ access, secret string }{
+		{access: "only-access"}, {secret: "only-secret"},
+		{access: " ", secret: " "},
+	} {
+		clearConfigEnvironment(t)
+		t.Setenv("APP_SQS_ACCESS_KEY_ID", values.access)
+		t.Setenv("APP_SQS_SECRET_ACCESS_KEY", values.secret)
+		if _, err := Load(); err == nil {
+			t.Fatalf("Load() accepted incomplete SQS credentials: access=%q secret=%q", values.access, values.secret)
+		}
+	}
+}
+
 func TestLoadRejectsReferenceLeaseShorterThanProcessing(t *testing.T) {
 	clearConfigEnvironment(t)
 	t.Setenv("APP_REFERENCE_LEASE", "5s")

@@ -109,8 +109,8 @@ func Load() (Config, error) {
 		OIDCPingTimeout:     defaultOIDCPingTimeout,
 		SQSEndpoint:         envOrDefault("APP_SQS_ENDPOINT", defaultSQSEndpoint),
 		SQSRegion:           envOrDefault("APP_SQS_REGION", defaultSQSRegion),
-		SQSAccessKeyID:      envOrDefault("APP_SQS_ACCESS_KEY_ID", "test"),
-		SQSSecretAccessKey:  envOrDefault("APP_SQS_SECRET_ACCESS_KEY", "test"),
+		SQSAccessKeyID:      envOrDefault("APP_SQS_ACCESS_KEY_ID", ""),
+		SQSSecretAccessKey:  envOrDefault("APP_SQS_SECRET_ACCESS_KEY", ""),
 		SQSInputQueue:       envOrDefault("APP_SQS_INPUT_QUEUE", defaultSQSInputQueue),
 		SQSDLQQueue:         envOrDefault("APP_SQS_DLQ_QUEUE", defaultSQSDLQQueue),
 		SQSOutputQueue:      envOrDefault("APP_SQS_OUTPUT_QUEUE", defaultSQSOutputQueue),
@@ -231,13 +231,18 @@ func (c Config) validate() error {
 	if strings.TrimSpace(c.OIDCAudience) == "" {
 		return errors.New("APP_OIDC_AUDIENCE must not be empty")
 	}
-	if err := validHTTPURL("APP_SQS_ENDPOINT", c.SQSEndpoint); err != nil {
-		return err
+	if c.SQSEndpoint != "" {
+		if err := validHTTPURL("APP_SQS_ENDPOINT", c.SQSEndpoint); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(c.SQSRegion) == "" || strings.TrimSpace(c.SQSAccessKeyID) == "" ||
-		strings.TrimSpace(c.SQSSecretAccessKey) == "" || strings.TrimSpace(c.SQSInputQueue) == "" ||
+	if strings.TrimSpace(c.SQSRegion) == "" || strings.TrimSpace(c.SQSInputQueue) == "" ||
 		strings.TrimSpace(c.SQSConsumerName) == "" {
-		return errors.New("SQS region, credentials, input queue and consumer name must not be empty")
+		return errors.New("SQS region, input queue and consumer name must not be empty")
+	}
+	if (c.SQSAccessKeyID == "") != (c.SQSSecretAccessKey == "") ||
+		(c.SQSAccessKeyID != "" && (strings.TrimSpace(c.SQSAccessKeyID) == "" || strings.TrimSpace(c.SQSSecretAccessKey) == "")) {
+		return errors.New("SQS static credentials must be provided together or left empty for the AWS credential chain")
 	}
 	if c.SQSLongPoll > 20*time.Second || c.SQSLongPoll%time.Second != 0 {
 		return errors.New("APP_SQS_LONG_POLL must be an integral number of seconds no greater than 20s")

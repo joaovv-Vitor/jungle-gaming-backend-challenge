@@ -45,6 +45,7 @@ func (s *OutboxStore) Claim(ctx context.Context, lease time.Duration) (*applicat
 				UPDATE outbox_events AS outbox
 				SET lease_token=gen_random_uuid(),
 				    locked_until=statement_timestamp() + ($1::bigint * interval '1 millisecond'),
+				    next_attempt_at=statement_timestamp() + ($1::bigint * interval '1 millisecond'),
 				    attempts=attempts+1
 				FROM candidate WHERE outbox.event_id=candidate.event_id
 				RETURNING outbox.event_id, outbox.aggregate_id, outbox.event_type, outbox.correlation_id,

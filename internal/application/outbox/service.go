@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/safeerror"
 )
 
 var ErrInvalidClaim = errors.New("invalid outbox claim")
@@ -88,7 +89,7 @@ func (s *Service) ProcessOne(ctx context.Context) (Outcome, error) {
 		next := time.Now().UTC().Add(backoff(event.Attempts, s.jitter))
 		retryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
-		if retryErr := s.store.Retry(retryCtx, *event, next, truncate(err.Error(), 512)); retryErr != nil {
+		if retryErr := s.store.Retry(retryCtx, *event, next, "publish_"+safeerror.Reason(err)); retryErr != nil {
 			return OutcomeRetry, errors.Join(err, retryErr)
 		}
 		return OutcomeRetry, err
@@ -118,11 +119,4 @@ func backoff(attempt int, jitter func(time.Duration) time.Duration) time.Duratio
 		return delay
 	}
 	return delay + jitter(delay/4+1)
-}
-
-func truncate(value string, max int) string {
-	if len(value) <= max {
-		return value
-	}
-	return value[:max]
 }

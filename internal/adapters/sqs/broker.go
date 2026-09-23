@@ -35,18 +35,22 @@ type Message struct {
 }
 
 func NewBroker(cfg config.Config) (*Broker, error) {
-	sdkConfig, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithRegion(cfg.SQSRegion),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			cfg.SQSAccessKeyID, cfg.SQSSecretAccessKey, "",
-		)),
-	)
+	loadOptions := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(cfg.SQSRegion)}
+	if cfg.SQSAccessKeyID != "" {
+		loadOptions = append(loadOptions, awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.SQSAccessKeyID, cfg.SQSSecretAccessKey, "")))
+	}
+	sdkConfig, err := awsconfig.LoadDefaultConfig(context.Background(), loadOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load AWS configuration: %w", err)
 	}
-	client := awssqs.NewFromConfig(sdkConfig, func(options *awssqs.Options) {
-		options.BaseEndpoint = aws.String(cfg.SQSEndpoint)
-	})
+	clientOptions := []func(*awssqs.Options){}
+	if cfg.SQSEndpoint != "" {
+		clientOptions = append(clientOptions, func(options *awssqs.Options) {
+			options.BaseEndpoint = aws.String(cfg.SQSEndpoint)
+		})
+	}
+	client := awssqs.NewFromConfig(sdkConfig, clientOptions...)
 	return &Broker{client: client}, nil
 }
 

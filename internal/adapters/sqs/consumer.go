@@ -14,6 +14,7 @@ import (
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/safeerror"
 )
 
 type messageBroker interface {
@@ -155,7 +156,7 @@ func (c *Consumer) run(pollCtx, workCtx context.Context) {
 			if errors.Is(pollCtx.Err(), context.Canceled) {
 				return
 			}
-			c.logger.Error("SQS receive failed", "error", err)
+			c.logger.Error("SQS receive failed", "reason", safeerror.Reason(err))
 			timer := time.NewTimer(time.Second)
 			select {
 			case <-pollCtx.Done():
@@ -188,7 +189,7 @@ func (c *Consumer) observeDLQ(parent context.Context) {
 	count, err := c.broker.ApproximateMessages(ctx, c.currentDLQURL())
 	if err != nil {
 		if parent.Err() == nil {
-			c.logger.Error("SQS DLQ depth query failed", "error", err)
+			c.logger.Error("SQS DLQ depth query failed", "reason", safeerror.Reason(err))
 		}
 		return
 	}
@@ -222,7 +223,7 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 	message, err := application.DecodeMessage([]byte(received.Body))
 	if err != nil {
 		metricResult = metrics.SQSResultInvalid
-		c.logger.Warn("invalid SQS message left for redrive", "brokerMessageId", received.ID, "error", err)
+		c.logger.Warn("invalid SQS message left for redrive", "brokerMessageId", received.ID, "reason", "invalid_message")
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, c.cfg.SQSProcessing)
@@ -242,7 +243,7 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 		}
 		c.instrumentation.RecordWagerError("sqs", metricCode)
 		c.logger.Error("SQS message processing failed", "brokerMessageId", received.ID, "messageId", message.ID,
-			"correlationId", message.Input.CorrelationID, "error", err)
+			"correlationId", message.Input.CorrelationID, "reason", metricCode, "cause", safeerror.Reason(err))
 		if ctx.Err() != nil {
 			c.release(received)
 		}
@@ -255,7 +256,7 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 	defer deleteCancel()
 	if err := c.broker.Delete(deleteCtx, c.currentQueueURL(), received.ReceiptHandle); err != nil {
 		metricResult = metrics.SQSResultDeleteError
-		c.logger.Error("SQS message committed but delete failed", "brokerMessageId", received.ID, "messageId", message.ID, "transactionId", result.WagerResult.Transaction.ID(), "error", err)
+		c.logger.Error("SQS message committed but delete failed", "brokerMessageId", received.ID, "messageId", message.ID, "transactionId", result.WagerResult.Transaction.ID(), "reason", safeerror.Reason(err))
 		return
 	}
 	metricResult = metrics.SQSResultProcessed
@@ -271,7 +272,7 @@ func (c *Consumer) release(received Message) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.SQSPingTimeout)
 	defer cancel()
 	if err := c.broker.Release(ctx, c.currentQueueURL(), received.ReceiptHandle); err != nil {
-		c.logger.Warn("failed to release SQS message visibility", "brokerMessageId", received.ID, "error", err)
+		c.logger.Warn("failed to release SQS message visibility", "brokerMessageId", received.ID, "reason", safeerror.Reason(err))
 	}
 }
 

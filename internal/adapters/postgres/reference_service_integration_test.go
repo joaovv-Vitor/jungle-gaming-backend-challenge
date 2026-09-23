@@ -137,8 +137,8 @@ func TestReferenceWorkerRejectsExpiredAndIncompatibleReferences(t *testing.T) {
 func TestReferenceLeaseExpiresAndStaleTokenCannotChangeSchedule(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	pool, wallets, wagers, _ := referenceServices(t, ctx)
-	defer pool.Close()
+	pool, secondPool := isolatedSchedulerPools(t, ctx)
+	wallets, wagers := financialServicesOnPool(pool)
 	account, playerID := referenceWallet(t, ctx, wallets)
 	input := wagerInput(t, account.ID(), playerID, "pending-"+randomUUID(t), domain.KindRefund, mustMoney(t, 500, "BRL"), "missing-"+randomUUID(t))
 	pending, err := wagers.Submit(ctx, input)
@@ -147,21 +147,23 @@ func TestReferenceLeaseExpiresAndStaleTokenCannotChangeSchedule(t *testing.T) {
 	}
 	forceReferenceDue(t, ctx, pool, pending.Transaction.ID())
 	store := referenceStoreForPool(pool)
-	secondPool, err := pgxpool.New(ctx, integrationDatabaseURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer secondPool.Close()
 	otherStore := referenceStoreForPool(secondPool)
 	first, err := store.Claim(ctx, 30*time.Second)
 	if err != nil || first == nil {
 		t.Fatalf("first claim = %+v, error=%v", first, err)
 	}
 	var activeToken string
-	if err := secondPool.QueryRow(ctx, `SELECT lease_token::text FROM wager_transactions WHERE id=$1`, first.TransactionID).Scan(&activeToken); err != nil || activeToken != first.Token {
+	var scheduled, lockedUntil, expiresAt time.Time
+	if err := secondPool.QueryRow(ctx, `SELECT lease_token::text, next_attempt_at, locked_until, expires_at
+		FROM wager_transactions WHERE id=$1`, first.TransactionID).
+		Scan(&activeToken, &scheduled, &lockedUntil, &expiresAt); err != nil || activeToken != first.Token {
 		t.Fatalf("live lease token = %q, error=%v, want %q", activeToken, err, first.Token)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE wager_transactions SET locked_until=clock_timestamp()-interval '1 second' WHERE id=$1`, first.TransactionID); err != nil {
+	if !scheduled.Equal(lockedUntil) && !scheduled.Equal(expiresAt) {
+		t.Fatalf("claimed reference schedule = %s, lease = %s, expiry = %s", scheduled, lockedUntil, expiresAt)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE wager_transactions SET locked_until=clock_timestamp()-interval '1 second',
+		next_attempt_at=clock_timestamp()-interval '1 second' WHERE id=$1`, first.TransactionID); err != nil {
 		t.Fatal(err)
 	}
 	second, err := otherStore.Claim(ctx, 30*time.Second)

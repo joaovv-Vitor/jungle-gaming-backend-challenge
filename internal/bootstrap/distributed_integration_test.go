@@ -285,6 +285,8 @@ func startServer(t *testing.T, ctx context.Context, bin string, port, index int,
 		"APP_OIDC_ISSUER="+envOr("APP_OIDC_ISSUER", "http://localhost:8081/realms/wagering"),
 		"APP_OIDC_JWKS_URL="+envOr("APP_OIDC_JWKS_URL", "http://localhost:8081/realms/wagering/protocol/openid-connect/certs"),
 		"APP_SQS_ENDPOINT="+envOr("APP_SQS_ENDPOINT", "http://localhost:4566"),
+		"APP_SQS_ACCESS_KEY_ID="+envOr("APP_SQS_ACCESS_KEY_ID", "test"),
+		"APP_SQS_SECRET_ACCESS_KEY="+envOr("APP_SQS_SECRET_ACCESS_KEY", "test"),
 		"APP_DATABASE_MIN_CONNS=1", "APP_REFERENCE_WORKERS=1", "APP_OUTBOX_WORKERS=1",
 		"APP_SQS_LONG_POLL=1s", "APP_SQS_SHUTDOWN_TIMEOUT=5s")
 	cmd.Env = append(cmd.Env, overrides...)

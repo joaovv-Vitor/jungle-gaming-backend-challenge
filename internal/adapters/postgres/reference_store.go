@@ -41,7 +41,9 @@ func (s *ReferenceStore) Claim(ctx context.Context, lease time.Duration) (*appli
 			)
 			UPDATE wager_transactions AS wager
 			SET lease_token=gen_random_uuid(),
-				locked_until=statement_timestamp() + ($1::bigint * interval '1 millisecond')
+				locked_until=statement_timestamp() + ($1::bigint * interval '1 millisecond'),
+				next_attempt_at=LEAST(
+					statement_timestamp() + ($1::bigint * interval '1 millisecond'), expires_at)
 			FROM candidate WHERE wager.id=candidate.id
 			RETURNING wager.id::text, wager.wallet_id::text, wager.lease_token::text`,
 			lease.Milliseconds()).Scan(&value.TransactionID, &value.WalletID, &value.Token)

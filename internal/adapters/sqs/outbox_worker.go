@@ -12,6 +12,7 @@ import (
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/safeerror"
 )
 
 type OutboxWorker struct {
@@ -71,7 +72,7 @@ func (w *OutboxWorker) run(parent context.Context) {
 		outcome, err := w.service.ProcessOne(ctx)
 		cancel()
 		if err != nil && parent.Err() == nil {
-			w.logger.Error("outbox publication failed", "error", err)
+			w.logger.Error("outbox publication failed", "reason", safeerror.Reason(err))
 		}
 		if parent.Err() == nil && outcome != application.OutcomeIdle {
 			result := string(outcome)
@@ -104,7 +105,7 @@ func (w *OutboxWorker) observeBacklog(parent context.Context) {
 		if err == nil {
 			w.metrics.SetOutboxBacklog(stats.Pending, stats.OldestAgeSeconds)
 		} else if parent.Err() == nil {
-			w.logger.Error("outbox backlog query failed", "error", err)
+			w.logger.Error("outbox backlog query failed", "reason", safeerror.Reason(err))
 		}
 		select {
 		case <-parent.Done():

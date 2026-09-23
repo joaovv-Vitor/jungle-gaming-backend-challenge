@@ -18,13 +18,8 @@ import (
 func TestOutboxPublishersClaimDistinctEventsAndRecoverAbandonedLease(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	pool, walletService, _ := financialServices(t, ctx)
-	defer pool.Close()
-	secondPool, err := pgxpool.New(ctx, integrationDatabaseURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer secondPool.Close()
+	pool, secondPool := isolatedSchedulerPools(t, ctx)
+	walletService, _ := financialServicesOnPool(pool)
 	correlationID := "outbox-" + randomUUID(t)
 	if _, err := walletService.Open(ctx, applicationwallet.OpenInput{
 		PlayerID: randomUUID(t), Initial: mustMoney(t, 10_000, "BRL"), CorrelationID: correlationID,
@@ -55,10 +50,16 @@ func TestOutboxPublishersClaimDistinctEventsAndRecoverAbandonedLease(t *testing.
 	if claims[0].ID == claims[1].ID || claims[0].GroupID != claims[1].GroupID || claims[0].Attempts != 1 || claims[1].Attempts != 1 {
 		t.Fatalf("claims = %+v and %+v", claims[0], claims[1])
 	}
+	var scheduled, lockedUntil time.Time
+	if err := pool.QueryRow(ctx, `SELECT next_attempt_at, locked_until FROM outbox_events WHERE event_id=$1`, claims[1].ID).
+		Scan(&scheduled, &lockedUntil); err != nil || !scheduled.Equal(lockedUntil) {
+		t.Fatalf("claimed outbox schedule = %s, lease = %s, error = %v", scheduled, lockedUntil, err)
+	}
 	if err := stores[0].Confirm(ctx, *claims[0]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE outbox_events SET locked_until=clock_timestamp()-interval '1 second' WHERE event_id=$1`, claims[1].ID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE outbox_events SET locked_until=clock_timestamp()-interval '1 second',
+		next_attempt_at=clock_timestamp()-interval '1 second' WHERE event_id=$1`, claims[1].ID); err != nil {
 		t.Fatal(err)
 	}
 	reclaimed, err := stores[0].Claim(ctx, 30*time.Second)
@@ -80,8 +81,8 @@ func TestOutboxPublishersClaimDistinctEventsAndRecoverAbandonedLease(t *testing.
 func TestOutboxFailedSendRetainsEventAndRetrySchedule(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	pool, walletService, _ := financialServices(t, ctx)
-	defer pool.Close()
+	pool, _ := isolatedSchedulerPools(t, ctx)
+	walletService, _ := financialServicesOnPool(pool)
 	correlationID := "outbox-retry-" + randomUUID(t)
 	if _, err := walletService.Open(ctx, applicationwallet.OpenInput{
 		PlayerID: randomUUID(t), Initial: mustMoney(t, 10_000, "BRL"), CorrelationID: correlationID,
