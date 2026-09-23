@@ -50,6 +50,7 @@ Atualizado em 23 de setembro de 2026:
 - Auditoria da Fase 10 registrada em `REQUIREMENTS_AUDIT.md`: teste de autorização real inclui dois provedores e ausência de efeitos financeiros para acessos indevidos; há templates IAM de menor privilégio, mas o LocalStack Community aceitou credenciais fictícias e não demonstra negação no broker. A matriz permanece aberta onde a evidência é parcial.
 - Corrida `REFUND` × `ROLLBACK` e rollback debitante sem fundos verificados em PostgreSQL real; uma rejeição reproduz o saldo histórico após nova operação. Um teste de processo real confirmou referência pendente preservada por SIGTERM, resolução tardia e expiração com evento terminal após restart.
 - Paginação do ledger alinhada ao contrato do §14.2: ordem descendente, limite 100 e cursor versionado/vinculado à carteira. Um teste HTTP real percorre o histórico enquanto novos lançamentos confirmam e verifica ausência de duplicatas/omissões, ordenação e erros de cursor.
+- `SIGTERM` durante consumo SQS verificado com fila FIFO isolada: o primeiro processo aguarda um lock PostgreSQL, cancela sem confirmar inbox/efeito e libera a mensagem antes da visibility de 30 segundos; outra instância conclui o tratamento e o delete com efeito financeiro único.
 - Próxima etapa: fechar os demais cenários parciais da matriz e a documentação de entrega. Repetir análise de planos com dados representativos antes de afirmar desempenho em escala.
 
 ---

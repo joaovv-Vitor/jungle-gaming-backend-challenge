@@ -21,7 +21,7 @@ Revisão da matriz da seção 24 de `IMPLEMENTATION_PLAN.md` em 23/09/2026. **Co
 | §9: replay histórico | Coberto | Replay de sucesso e `TestRefundAndRollbackRaceForSameBet` verificam saldo histórico de rejeição após nova operação; teste com Keycloak nega replay por outro provedor. |
 | §9: reconciliação | Coberto | Testes de snapshot concorrente, divergência sinalizada e overflow em `reconciliation_integration_test.go`. |
 | §6.5, §10: inbox | Coberto | Testes de commit atômico, cruzamento HTTP/SQS e redelivery em PostgreSQL/LocalStack. |
-| §10: retry, DLQ e SIGTERM | Parcial | Redrive real, recuperação de falhas e SIGTERM multiprocesso existem; falta teste com mensagem em processamento durante SIGTERM e prazo de visibility. |
+| §10: retry, DLQ e SIGTERM | Coberto | Redrive real e recuperação de falhas; `TestSIGTERMReleasesInFlightSQSMessageForAnotherProcess` segura o lock da carteira, sinaliza o processo durante o consumo e verifica liberação antes do visibility timeout, rollback sem inbox parcial e processamento único por outra instância. |
 | §11: outbox | Coberto | Testes de publishers concorrentes, lease abandonado, reenvio com `eventId` estável e fila FIFO real. |
 | §11: quatro eventos | Parcial | Payloads e eventos de OPENING/LOSS/rejeição/pendência têm testes de domínio; falta contrato end-to-end dos quatro tipos no SQS. |
 | §12: observabilidade | Parcial | Readiness/liveness, métricas e recuperação são exercitados; falta verificação sistemática de logs sem segredos para todos os fluxos. |
