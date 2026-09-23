@@ -20,7 +20,7 @@ No início da revisão, o repositório não continha implementação Go, migrati
 
 ### 1.2. Estado da execução
 
-Atualizado em 22 de setembro de 2026:
+Atualizado em 23 de setembro de 2026:
 
 - Fase 0 concluída: decisões iniciais registradas em `ARCHITECTURE.md` e matriz de rastreabilidade definida neste plano.
 - Fase 1 implementada: módulo Go, Fx, configuração, logger JSON, HTTP, health checks, graceful shutdown, Dockerfile, Compose e `.env.example`.
@@ -46,7 +46,8 @@ Atualizado em 22 de setembro de 2026:
 - Verificações da Fase 9 incluem saldo com e sem lançamentos, diferença negativa, overflow, visibilidade antes/depois de commit financeiro, autorização da rota, recuperação do readiness e labels de métricas limitados.
 - Fase 10 em andamento: teste de integração sobe três processos reais do binário com PIDs, portas e pools distintos; confirma a disputa de duas apostas, 50 entregas HTTP idênticas, progresso de uma carteira independente enquanto outra aguarda um lock observado no PostgreSQL, encerramento por SIGTERM e replay após reinício completo. A verificação final compara saldo, versão, ledger e contagem de eventos da outbox.
 - Falhas temporárias da Fase 10 verificadas com proxies locais isolados: perda de conexão PostgreSQL derruba apenas o readiness, responde `503 TRANSIENT_FAILURE` sem confirmar resultado e permite retry pela mesma identidade após recuperação; perda temporária do SQS preserva o commit financeiro na outbox e publica os eventos depois da volta do broker. Liveness permaneceu disponível e o saldo final foi conferido contra o ledger. O teste não interrompe containers compartilhados.
-- Próxima etapa: revisar timeouts e planos de consulta/índices, além das lacunas restantes da matriz obrigatória, antes da documentação de entrega.
+- Hardening da Fase 10: migration 3 formaliza `next_attempt_at <= expires_at` em referências pendentes, normalizando registros antigos; claims de referência e outbox usam `statement_timestamp()` para transformar o prazo em condição de índice. `EXPLAIN` local confirmou o uso de `wager_pending_reference_work`, `outbox_pending_work`, `ledger_wallet_page` e da PK da inbox; a estatística da outbox faz index-only scan. O timeout global de parada do Fx acompanha a soma dos limites dos hooks, e o grace period do Compose foi ampliado para comportá-lo.
+- Próxima etapa: consolidar as lacunas restantes da matriz obrigatória e finalizar a documentação de entrega; repetir análise de planos com dados representativos antes de afirmar desempenho em escala.
 
 ---
 
@@ -1468,7 +1469,7 @@ A implementação estará concluída quando:
 
 ## 23. Próximo passo imediato
 
-Implementar a Fase 3: provisionar PostgreSQL no Compose, definir migrations up/down com roles e constraints, integrar o pool `pgx`, criar a unidade de trabalho e os mapeamentos dos agregados. A primeira evidência deve executar migrations em PostgreSQL real e provar por SQL direto as restrições de saldo, unicidade e imutabilidade do ledger.
+Concluir a Fase 10 auditando cada linha da matriz da seção 24 contra testes e comandos reproduzíveis, sem marcar cobertura apenas por existir código. Registrar as lacunas remanescentes e resolvê-las antes da Fase 11. Em seguida, revisar README, ARCHITECTURE e `.env.example` como entrega de checkout limpo; reavaliar os planos SQL com volume representativo antes de alegar desempenho em escala.
 
 ---
 

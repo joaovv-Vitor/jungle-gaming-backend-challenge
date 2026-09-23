@@ -37,14 +37,14 @@ func (s *OutboxStore) Claim(ctx context.Context, lease time.Duration) (*applicat
 		err := tx.QueryRow(ctx, `
 			WITH candidate AS (
 				SELECT event_id FROM outbox_events
-				WHERE published_at IS NULL AND next_attempt_at <= clock_timestamp()
-				  AND (locked_until IS NULL OR locked_until <= clock_timestamp())
+				WHERE published_at IS NULL AND next_attempt_at <= statement_timestamp()
+				  AND (locked_until IS NULL OR locked_until <= statement_timestamp())
 				ORDER BY next_attempt_at, occurred_at, event_id
 				FOR UPDATE SKIP LOCKED LIMIT 1
 			), claimed AS (
 				UPDATE outbox_events AS outbox
 				SET lease_token=gen_random_uuid(),
-				    locked_until=clock_timestamp() + ($1::bigint * interval '1 millisecond'),
+				    locked_until=statement_timestamp() + ($1::bigint * interval '1 millisecond'),
 				    attempts=attempts+1
 				FROM candidate WHERE outbox.event_id=candidate.event_id
 				RETURNING outbox.event_id, outbox.aggregate_id, outbox.event_type, outbox.correlation_id,

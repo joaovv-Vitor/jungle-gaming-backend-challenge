@@ -83,6 +83,13 @@ type Config struct {
 	OutboxWorkers       int32
 }
 
+// Fx stops lifecycle hooks in reverse order. Reserve enough time for the HTTP
+// server, workers, and an in-flight SQS handler to finish sequentially.
+func (c Config) StopTimeout() time.Duration {
+	return c.ShutdownTimeout + c.SQSShutdown + c.SQSProcessing +
+		c.ReferenceProcess + c.OutboxProcess + 10*time.Second
+}
+
 func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddress:         envOrDefault("APP_HTTP_ADDR", defaultHTTPAddress),

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/bootstrap"
+	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
 )
 
 func main() {
@@ -21,7 +22,12 @@ func main() {
 		return
 	}
 
-	fx.New(bootstrap.Module).Run()
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invalid configuration:", err)
+		os.Exit(1)
+	}
+	fx.New(bootstrap.Module, fx.Replace(cfg), fx.StopTimeout(cfg.StopTimeout())).Run()
 }
 
 func checkHealth() error {

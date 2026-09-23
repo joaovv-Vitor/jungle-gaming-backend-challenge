@@ -99,7 +99,7 @@ services:
     ports:
       - "${APP_HTTP_PORT:-8080}:8080"
     init: true
-    stop_grace_period: 20s
+    stop_grace_period: ${APP_STOP_GRACE_PERIOD:-100s}
     healthcheck:
       test: ["CMD", "/wager-service", "healthcheck"]
       interval: 10s

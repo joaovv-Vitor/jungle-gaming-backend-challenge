@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
@@ -321,6 +322,11 @@ func TestPendingReferenceRequiresDurableSchedule(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("persist scheduled pending reference: %v", err)
+	}
+	_, err = pool.Exec(ctx, `UPDATE wager_transactions SET next_attempt_at=expires_at+interval '1 second' WHERE id=$1`, pending.ID())
+	var databaseError *pgconn.PgError
+	if !errors.As(err, &databaseError) || databaseError.ConstraintName != "wager_pending_reference_due_before_expiry" {
+		t.Fatalf("late pending schedule error = %v, want deadline constraint", err)
 	}
 }
 

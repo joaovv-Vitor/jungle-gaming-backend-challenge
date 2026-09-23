@@ -18,6 +18,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ShutdownTimeout != defaultShutdownTimeout {
 		t.Errorf("ShutdownTimeout = %s, want %s", cfg.ShutdownTimeout, defaultShutdownTimeout)
 	}
+	if cfg.StopTimeout() != 95*time.Second {
+		t.Errorf("StopTimeout = %s, want 95s", cfg.StopTimeout())
+	}
 }
 
 func TestLoadRejectsInvalidDuration(t *testing.T) {
@@ -42,6 +45,9 @@ func TestLoadReadsEnvironment(t *testing.T) {
 	}
 	if cfg.HTTPAddress != "127.0.0.1:9090" || cfg.LogLevel != "debug" || cfg.ShutdownTimeout != 3*time.Second {
 		t.Fatalf("Load() = %+v", cfg)
+	}
+	if cfg.StopTimeout() != 83*time.Second {
+		t.Fatalf("StopTimeout = %s, want 83s after changing HTTP shutdown", cfg.StopTimeout())
 	}
 }
 

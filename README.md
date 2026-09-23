@@ -161,11 +161,19 @@ docker compose exec -T postgres \
 docker compose exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
   -f /migrations/000002_financial_semantics.up.sql
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
+  -f /migrations/000003_pending_reference_deadline.up.sql
 ```
+
+Em um volume já existente na versão 2, aplique somente `000003_pending_reference_deadline.up.sql` antes de iniciar a versão nova do app. A migration antecipa para o prazo de expiração qualquer referência pendente agendada depois dele, sem remover a operação. Consulte `schema_migrations` para confirmar a versão aplicada.
 
 Reversão em ordem inversa; a última etapa remove permanentemente todas as tabelas e seus dados:
 
 ```sh
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
+  -f /migrations/000003_pending_reference_deadline.down.sql
 docker compose exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U wager_admin -d wagering \
   -f /migrations/000002_financial_semantics.down.sql
@@ -175,6 +183,10 @@ docker compose exec -T postgres \
 ```
 
 As credenciais de `.env.example` são apenas para o ambiente local.
+
+Para inspecionar os planos críticos sem executar os workers, use `docker compose exec -T postgres psql -U wager_admin -d wagering < scripts/explain_worker_queries.sql`. Em dados locais pequenos, o planner usa `wager_pending_reference_work` e `outbox_pending_work` com `Index Cond` no prazo, `ledger_wallet_page` para paginação e a chave primária da inbox. `EXPLAIN` não é benchmark de carga; reavalie estatísticas e planos em dados representativos.
+
+O prazo global de parada do Fx é calculado a partir dos limites HTTP, SQS, referência e outbox (95 segundos com os defaults). No Compose, `APP_STOP_GRACE_PERIOD` é 100 segundos por padrão; mantenha-o maior que o orçamento global ao personalizar timeouts. O SQS usa processamento de 20 segundos, visibility de 60 segundos e janela de shutdown de 30 segundos; referências e outbox usam processamento de 10 segundos e lease de 30 segundos.
 
 ## Verificações
 
