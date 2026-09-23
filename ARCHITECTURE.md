@@ -2,7 +2,7 @@
 
 ## Status
 
-Documento inicial. As decisões abaixo orientam a implementação e serão atualizadas com as evidências dos testes. O enunciado em `teste tecnoco.md` é a fonte de requisitos e `IMPLEMENTATION_PLAN.md` mantém a rastreabilidade.
+O enunciado em `teste tecnico.md` é a fonte de requisitos. As decisões abaixo descrevem a implementação e suas limitações; `REQUIREMENTS_AUDIT.md` registra as verificações.
 
 ## Limite do sistema
 
@@ -14,13 +14,13 @@ O serviço recebe operações por HTTP autenticado e por uma fila produzida por 
 
 `Money` usa `int64` em unidades mínimas, moeda explícita e escala fixa de duas casas. Entradas e saídas usam strings decimais. Nenhum caminho faz conversão por ponto flutuante. Parsing, soma, subtração e negação verificam overflow e compatibilidade de moeda.
 
-O parser interno aceita sinal para permitir diferenças e cálculos negativos. O parser de entrada externa recusa qualquer sinal negativo, inclusive `-0.00`, e exige exatamente duas casas. Representações com zeros à esquerda são aceitas e normalizadas antes de serialização e do futuro hash canônico (`00025.00` torna-se `25.00`). A lista inicial de moedas suportadas é BRL, USD e EUR; cenários financeiros principais permanecem em BRL.
+O parser interno aceita sinal para permitir diferenças e cálculos negativos. O parser de entrada externa recusa qualquer sinal negativo, inclusive `-0.00`, e exige exatamente duas casas. Representações com zeros à esquerda são aceitas e normalizadas antes de serialização e do hash canônico (`00025.00` torna-se `25.00`). A lista inicial de moedas suportadas é BRL, USD e EUR; cenários financeiros principais permanecem em BRL.
 
 ### Concorrência e transações
 
-Operações financeiras usarão transação `READ COMMITTED` e lock pessimista por carteira com `SELECT ... FOR NO KEY UPDATE`. Isso serializa apenas operações da mesma carteira. Saldo, versão, transação, ledger, inbox quando aplicável e outbox serão confirmados atomicamente.
+Operações financeiras usam transação `READ COMMITTED` e lock pessimista por carteira com `SELECT ... FOR NO KEY UPDATE`. Isso serializa apenas operações da mesma carteira. Saldo, versão, transação, ledger, inbox quando aplicável e outbox são confirmados atomicamente.
 
-Todos os fluxos seguirão a ordem de locks definida na seção 11.2 do plano. Deadlocks e falhas de serialização provocam retry limitado da transação inteira; não viram rejeição de negócio.
+Os fluxos financeiros bloqueiam primeiro a carteira e depois consultam ou atualizam a transação e seus registros dependentes. Deadlocks e falhas de serialização provocam retry limitado da transação inteira; não viram rejeição de negócio.
 
 O retry transacional é aplicado apenas a `40P01` e `40001`, até três tentativas com jitter. Cada tentativa abre uma transação nova e repete o callback completo; erros de conexão e commits ambíguos não são repetidos automaticamente. I/O externo permanece fora do callback.
 
@@ -40,19 +40,25 @@ A leitura paginada do ledger usa `(wallet_version, id)` em ordem descendente e c
 
 O banco imporá unicidade de `(provider_id, idempotency_key)` e `(provider_id, external_transaction_id)`. Um SHA-256 do payload de negócio canônico detectará reuso da identidade com conteúdo diferente. Replays reproduzirão o resultado persistido, inclusive o saldo observado no processamento original.
 
-O payload canônico é JSON UTF-8 compacto com chaves em ordem lexicográfica. Ele contém `externalTransactionId`, `gameId`, `kind`, `money` (`amount`, `currency`), `playerId`, `providerId`, `referenceExternalTransactionId` quando presente, `roundId` e `walletId`. O valor monetário é normalizado para duas casas decimais e a moeda para o código de três letras aceito pelo domínio. `Idempotency-Key`, correlação, credenciais e metadados de HTTP/SQS ficam fora do hash. O mesmo construtor será usado pelo adaptador SQS, preservando equivalência entre transportes.
+O payload canônico é JSON UTF-8 compacto com chaves em ordem lexicográfica. Ele contém `externalTransactionId`, `gameId`, `kind`, `money` (`amount`, `currency`), `playerId`, `providerId`, `referenceExternalTransactionId` quando presente, `roundId` e `walletId`. O valor monetário é normalizado para duas casas decimais e a moeda para o código de três letras aceito pelo domínio. `Idempotency-Key`, correlação, credenciais e metadados de HTTP/SQS ficam fora do hash. O mesmo construtor é usado pelo adaptador SQS, preservando equivalência entre transportes.
 
 Em `READ COMMITTED`, uma inserção concorrente pode tornar-se visível entre as consultas das duas identidades. Quando isso ocorre, o caso de uso reavalia chave e hash usando a linha vencedora; uma entrega idêntica vira replay, enquanto conteúdo ou chave divergentes continuam sendo conflito. Violações concorrentes dos índices únicos são traduzidas para a mesma avaliação após rollback.
 
 ### Ledger
 
-O ledger será append-only. Reversões criam novos lançamentos e não editam histórico. Constraints, FKs, triggers diferíveis e privilégios da role de runtime protegerão a correspondência entre saldo, transação e lançamento, além de impedir `UPDATE`, `DELETE` e `TRUNCATE`.
+O ledger é append-only. Reversões criam novos lançamentos e não editam histórico. Constraints, FKs, triggers diferíveis e privilégios da role de runtime protegem a correspondência entre saldo, transação e lançamento, além de impedir `UPDATE`, `DELETE` e `TRUNCATE`.
 
 A migration 4 verifica o histórico antes da instalação e faz a trigger diferível exigir que `balance_before_minor` seja exatamente o saldo anterior da carteira (zero na abertura), além de conferir saldo posterior, versão, transação, valor e direção. Isso impede que um lançamento comece de um saldo inventado mesmo quando a equação interna do lançamento está correta.
 
 ### Referências e reversões
 
 Uma `BET` admite uma única reversão direta bem-sucedida, `REFUND` ou `ROLLBACK`; `WIN` e `REFUND` admitem um `ROLLBACK`. Desfazer um `REFUND` não reabre a aposta para outra reversão. Referências ainda ausentes são persistidas com agenda, expiração e lease; outra instância pode retomá-las.
+
+### Estados e falhas permanentes
+
+O domínio valida `PENDING → PROCESSED`, `PENDING → PENDING_REFERENCE`, `PENDING → REJECTED` e `PENDING → FAILED`, além das transições de `PENDING_REFERENCE` para estados terminais. `PROCESSED`, `REJECTED` e `FAILED` são terminais. `REJECTED` representa uma decisão de negócio persistida com `failureCode` e saldo resultante; `FAILED` representa uma falha de infraestrutura comprovadamente permanente, com `INFRASTRUCTURE_PERMANENT_FAILURE` e sem saldo resultante. `Transaction.Fail()` valida essa transição e a reidratação aceita o estado, mas nenhum worker atual a aciona ou persiste. O enunciado exige validar a transição no domínio e explicar a política, sem exigir uma falha permanente simulada no fluxo de produção.
+
+Uma falha de conexão, timeout, deadlock, indisponibilidade do SQS ou resultado de commit incerto não comprova permanência. O callback SQL é repetido apenas para deadlock e erro de serialização; outros erros transitórios retornam `503 TRANSIENT_FAILURE` no HTTP para repetição com a mesma identidade. No SQS, a mensagem permanece sem delete e a visibility recebe backoff antes de nova entrega. Após o limite de recebimentos, o broker move envelopes inválidos e falhas não resolvidas para a DLQ para inspeção e eventual reenvio controlado. Esse redrive não converte automaticamente uma transação financeira em `FAILED`: a transação pode nem ter sido criada, e um commit incerto exige consulta antes de qualquer decisão terminal. Referência ausente ou ainda pendente segue sua agenda durável; ao fim do TTL é `REJECTED` com `REFERENCE_NOT_FOUND`, não `FAILED`. Uma classificação permanente só seria apropriada após evidência operacional conclusiva de que não haverá recuperação ou efeito financeiro posterior, com registro atômico e auditável dessa decisão.
 
 ### Inbox e outbox
 
@@ -64,13 +70,13 @@ O consumidor usa AWS SDK for Go v2 e long polling. O envelope é validado e norm
 
 ### Autenticação e autorização
 
-O HTTP usará OAuth 2.0/OIDC com Keycloak local e `client_credentials`. O token determina o provider autorizado; valores do corpo nunca concedem autoridade. Endpoints de carteira e reconciliação exigem identidade interna. A fila de entrada aceita apenas um produtor interno confiável, porque `providerId` no payload não autentica o remetente.
+O HTTP usa OAuth 2.0/OIDC com Keycloak local e `client_credentials`. O token determina o provider autorizado; valores do corpo nunca concedem autoridade. Endpoints de carteira e reconciliação exigem identidade interna. A fila de entrada aceita apenas um produtor interno confiável, porque `providerId` no payload não autentica o remetente.
 
 O adaptador usa `go-oidc` 3.21.0 para verificar assinatura RS256, emissor, audiência e validade temporal. Em Docker, o emissor público (`localhost:8081`) permanece o valor validado no token, enquanto uma URL JWKS interna (`keycloak:8080`) é configurada separadamente; isso evita desabilitar a validação de issuer apenas para contornar DNS entre host e containers. O claim `provider_id` identifica o provedor e `realm_access.roles` determina as permissões `provider` e `internal`.
 
-O realm de teste contém dois clients de provedor para demonstrar isolamento com tokens reais. A fila SQS compartilhada é uma fronteira de confiança diferente do HTTP: apenas o serviço interno de ingestão deve enviar, usando uma role IAM separada da role do aplicativo. Com endpoint e credenciais explícitas vazios, o adaptador usa a cadeia padrão de credenciais do SDK e o endpoint AWS da região; o Compose mantém credenciais locais para o LocalStack. Os templates de menor privilégio estão em `deploy/aws/` e um teste local confere suas ações e recursos exatos. `TestAWSIAMQueuePermissions` está disponível como verificação opcional de acesso efetivo na AWS. O LocalStack Community local aceitou credenciais fictícias para consultar a fila e não comprova negação por IAM; o [enforcement de IAM exige a edição Pro do LocalStack](https://github.com/localstack/localstack-docs/blob/main/src/content/docs/aws/customization/configuration-options.md). O enunciado não exige teste em conta AWS real; essa limitação está registrada em `REQUIREMENTS_AUDIT.md`.
+O realm de teste contém dois clients de provedor para demonstrar isolamento com tokens reais. A fila SQS compartilhada é uma fronteira de confiança diferente do HTTP: apenas o serviço interno de ingestão pode enviar, com credenciais e política separadas das do aplicativo. No Compose principal, `sqs-gateway` é o único endpoint SQS publicado. Ele verifica assinatura SigV4, data e hash do corpo antes de aplicar os templates de menor privilégio de `deploy/aws/`; só então encaminha a operação ao LocalStack, que permanece em uma rede interna. A identidade de testes `test/test` pode operar filas isoladas, mas é bloqueada nas três filas da aplicação; `wager-test-app-local` acessa filas isoladas e apenas as ações do app na saída/DLQ, sem acesso à entrada financeira. O teste `TestMainSQSRejectsUnauthorizedFinancialMessage` executa o fluxo financeiro real e verifica que chave desconhecida, segredo errado e identidades sem permissão não alteram saldo, ledger, transações ou inbox. Esse gateway local cobre a lacuna de enforcement do [LocalStack Community](https://docs.localstack.cloud/aws/developer-tools/security-testing/iam-policy-enforcement/), preservando FIFO e DLQ do broker usado pela aplicação.
 
-Uma stack Compose isolada com MiniStack `AUTH=true` aplica esses templates a identidades locais distintas e confirma permissões concedidas e `AccessDenied` para sete ações não autorizadas. Isso demonstra a avaliação de políticas SQS sem conta AWS. O [MiniStack não verifica assinaturas SigV4](https://ministack.org/docs/configuration); portanto, a origem da access key não é autenticada criptograficamente nesse ensaio. O Compose principal continua exercitando FIFO, redrive, inbox e outbox no LocalStack.
+Em AWS, o gateway local não participa do fluxo. Com endpoint e credenciais explícitas vazios, o adaptador usa a cadeia padrão de credenciais do SDK e o endpoint AWS da região; as políticas em `deploy/aws/` devem ser atribuídas a roles IAM distintas. `TestAWSIAMQueuePermissions` é uma verificação opcional de acesso efetivo na conta alvo, incluindo queue policies e demais controles da conta.
 
 ### Composição e encerramento
 

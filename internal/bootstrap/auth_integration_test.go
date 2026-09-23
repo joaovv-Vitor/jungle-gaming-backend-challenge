@@ -133,6 +133,14 @@ func TestRealKeycloakAuthorizationHasNoUnauthorizedFinancialEffects(t *testing.T
 	if !strings.Contains(string(logs), "wager submission handled") {
 		t.Fatal("expected financial operation log is missing")
 	}
+	for _, expected := range []string{
+		`"transactionId":"` + transactionID + `"`, `"externalTransactionId":"` + externalID + `"`,
+		`"providerId":"provider-a"`, `"walletId":"` + walletID + `"`,
+	} {
+		if !strings.Contains(string(logs), expected) {
+			t.Fatalf("financial operation log lacks %s", expected)
+		}
+	}
 	for _, secret := range []string{internalToken, providerToken, otherProviderToken,
 		secretSentinel, "internal-service-local", "provider-a-local", "provider-b-local"} {
 		if strings.Contains(string(logs), secret) {

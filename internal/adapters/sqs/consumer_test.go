@@ -133,6 +133,9 @@ func TestConsumerLogsExcludeUntrustedErrorDetails(t *testing.T) {
 	for _, expected := range []string{
 		"invalid SQS message left for redrive", "SQS message processing failed",
 		"SQS message committed but delete failed",
+		`"brokerMessageId":"processing-broker-message"`, `"messageId":"message-1"`,
+		`"providerId":"provider-a"`, `"walletId":"wallet-1"`,
+		`"externalTransactionId":"external-1"`, `"transactionId":"transaction-1"`,
 	} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("missing worker log %q: %s", expected, logs.String())

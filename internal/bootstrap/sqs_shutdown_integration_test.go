@@ -80,6 +80,7 @@ func TestSIGTERMReleasesInFlightSQSMessageForAnotherProcess(t *testing.T) {
 	port := freePort(t)
 	overrides := []string{
 		"APP_DATABASE_URL=" + parsedURL.String(),
+		"APP_SQS_ACCESS_KEY_ID=wager-test-app-local", "APP_SQS_SECRET_ACCESS_KEY=wager-test-app-local-secret",
 		"APP_SQS_INPUT_QUEUE=" + queueName,
 		"APP_SQS_CONSUMER_NAME=" + consumerName,
 		"APP_SQS_LONG_POLL=1s", "APP_SQS_VISIBILITY_TIMEOUT=30s",

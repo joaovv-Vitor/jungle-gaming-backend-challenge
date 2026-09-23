@@ -227,6 +227,9 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 		c.logger.Warn("invalid SQS message left for redrive", "brokerMessageId", received.ID, "reason", "invalid_message")
 		return
 	}
+	logger := c.logger.With("brokerMessageId", received.ID, "messageId", message.ID,
+		"correlationId", message.Input.CorrelationID, "providerId", message.Input.ProviderID,
+		"walletId", message.Input.WalletID, "externalTransactionId", message.Input.ExternalTransactionID)
 	ctx, cancel := context.WithTimeout(parent, c.cfg.SQSProcessing)
 	defer cancel()
 	result, err := c.ingestion.Consume(ctx, c.cfg.SQSConsumerName, message)
@@ -243,12 +246,11 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 			metricCode = "concurrent_write"
 		}
 		c.instrumentation.RecordWagerError("sqs", metricCode)
-		c.logger.Error("SQS message processing failed", "brokerMessageId", received.ID, "messageId", message.ID,
-			"correlationId", message.Input.CorrelationID, "reason", metricCode, "cause", safeerror.Reason(err))
+		logger.Error("SQS message processing failed", "reason", metricCode, "cause", safeerror.Reason(err))
 		if ctx.Err() != nil {
-			c.release(received)
+			c.release(received, logger)
 		} else if retryableProcessingError(err) {
-			c.deferRetry(received)
+			c.deferRetry(received, logger)
 		}
 		return
 	}
@@ -259,15 +261,14 @@ func (c *Consumer) handle(parent context.Context, received Message) {
 	defer deleteCancel()
 	if err := c.broker.Delete(deleteCtx, c.currentQueueURL(), received.ReceiptHandle); err != nil {
 		metricResult = metrics.SQSResultDeleteError
-		c.logger.Error("SQS message committed but delete failed", "brokerMessageId", received.ID, "messageId", message.ID, "transactionId", result.WagerResult.Transaction.ID(), "reason", safeerror.Reason(err))
+		logger.Error("SQS message committed but delete failed", "transactionId", result.WagerResult.Transaction.ID(), "reason", safeerror.Reason(err))
 		return
 	}
 	metricResult = metrics.SQSResultProcessed
 	if result.Duplicate || result.WagerResult.Replay {
 		metricResult = metrics.SQSResultReplay
 	}
-	c.logger.Info("SQS message processed", "brokerMessageId", received.ID, "messageId", message.ID,
-		"correlationId", message.Input.CorrelationID, "transactionId", result.WagerResult.Transaction.ID(),
+	logger.Info("SQS message processed", "transactionId", result.WagerResult.Transaction.ID(),
 		"duplicate", result.Duplicate || result.WagerResult.Replay)
 }
 
@@ -291,20 +292,20 @@ func retryVisibilitySeconds(receiveCount int) int32 {
 	return seconds
 }
 
-func (c *Consumer) deferRetry(received Message) {
+func (c *Consumer) deferRetry(received Message, logger *slog.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.SQSPingTimeout)
 	defer cancel()
 	seconds := retryVisibilitySeconds(received.ReceiveCount)
 	if err := c.broker.ChangeVisibility(ctx, c.currentQueueURL(), received.ReceiptHandle, seconds); err != nil {
-		c.logger.Warn("failed to defer SQS message retry", "brokerMessageId", received.ID, "reason", safeerror.Reason(err))
+		logger.Warn("failed to defer SQS message retry", "reason", safeerror.Reason(err))
 	}
 }
 
-func (c *Consumer) release(received Message) {
+func (c *Consumer) release(received Message, logger *slog.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.SQSPingTimeout)
 	defer cancel()
 	if err := c.broker.Release(ctx, c.currentQueueURL(), received.ReceiptHandle); err != nil {
-		c.logger.Warn("failed to release SQS message visibility", "brokerMessageId", received.ID, "reason", safeerror.Reason(err))
+		logger.Warn("failed to release SQS message visibility", "reason", safeerror.Reason(err))
 	}
 }
 

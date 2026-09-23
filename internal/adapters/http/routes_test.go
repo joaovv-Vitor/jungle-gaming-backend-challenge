@@ -125,7 +125,7 @@ func TestWagerLogsExcludeCredentialsAndFinancialPayload(t *testing.T) {
 		applicationwallet.NewService(routeWalletStore{}), applicationwagering.NewService(routeWagerStore{}),
 		routeReconciler(), logger)
 	request := httptest.NewRequest(http.MethodPost, "/wagering/transactions", strings.NewReader(
-		`{"providerId":"provider-a","externalTransactionId":"external-secret-sentinel","playerId":"10000000-0000-4000-8000-000000000001","walletId":"10000000-0000-4000-8000-000000000002","roundId":"round-1","gameId":"game-secret-sentinel","kind":"BET","money":{"amount":"25.00","currency":"BRL"}}`))
+		`{"providerId":"provider-a","externalTransactionId":"external-1","playerId":"10000000-0000-4000-8000-000000000001","walletId":"10000000-0000-4000-8000-000000000002","roundId":"round-1","gameId":"game-secret-sentinel","kind":"BET","money":{"amount":"25.00","currency":"BRL"}}`))
 	request.Header.Set("Authorization", "Bearer provider")
 	request.Header.Set("Idempotency-Key", "key-secret-sentinel")
 	request.Header.Set("X-Correlation-ID", "safe-correlation-id")
@@ -134,7 +134,13 @@ func TestWagerLogsExcludeCredentialsAndFinancialPayload(t *testing.T) {
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d", recorder.Code)
 	}
-	if !strings.Contains(logs.String(), "safe-correlation-id") || strings.Contains(logs.String(), "secret-sentinel") ||
+	for _, expected := range []string{`"correlationId":"safe-correlation-id"`, `"providerId":"provider-a"`,
+		`"walletId":"10000000-0000-4000-8000-000000000002"`, `"externalTransactionId":"external-1"`} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("missing wager log identifier %s: %s", expected, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), "secret-sentinel") ||
 		strings.Contains(logs.String(), "Bearer provider") || strings.Contains(logs.String(), "25.00") {
 		t.Fatalf("unexpected wager log content: %s", logs.String())
 	}

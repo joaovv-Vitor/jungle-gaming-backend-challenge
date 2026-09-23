@@ -1,6 +1,6 @@
 # Processamento Distribuído de Apostas em Go
 
-Implementação do desafio descrito em `teste tecnoco.md`. A arquitetura, as verificações e a sequência de trabalho estão em `ARCHITECTURE.md`, `REQUIREMENTS_AUDIT.md` e `IMPLEMENTATION_PLAN.md`.
+Implementação do desafio descrito em `teste tecnico.md`. As decisões de arquitetura e as verificações estão em `ARCHITECTURE.md` e `REQUIREMENTS_AUDIT.md`.
 
 ## Estado atual
 
@@ -14,27 +14,16 @@ O projeto inclui bootstrap com Uber Fx, domínio financeiro, PostgreSQL, Keycloa
 ## Executar localmente
 
 ```sh
-cp .env.example .env
-docker compose up -d postgres keycloak localstack
-set -a
-. ./.env
-set +a
-go run ./cmd/server
+docker compose up --build
 ```
 
-O `go run` usa as variáveis exportadas pelo shell; ele não lê `.env` por conta própria. Inicie as dependências antes do servidor. Se alterar as portas do Compose, atualize também `APP_DATABASE_URL`, `APP_OIDC_ISSUER`, `APP_OIDC_JWKS_URL` e `APP_SQS_ENDPOINT` em `.env` para os endereços acessíveis pelo host.
+O Compose inicia a aplicação, PostgreSQL, Keycloak, LocalStack e `sqs-gateway`. Para personalizar portas e credenciais locais, copie `.env.example` para `.env` antes de iniciar.
 
 Verifique o processo:
 
 ```sh
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
-```
-
-Com Docker:
-
-```sh
-docker compose up --build
 ```
 
 O Compose provisiona o realm `wagering`, os clients `internal-service`, `provider-a`, `provider-b` e `wager-api`, além das roles `internal` e `provider`. As credenciais abaixo são exclusivamente locais. O import do Keycloak ocorre apenas na criação do realm; se o volume foi criado antes da inclusão do provider B, recrie o realm em um ambiente descartável ou adicione o client/role de serviço por administração, sem apagar dados de produção.
@@ -106,12 +95,37 @@ curl -H "Authorization: Bearer $PROVIDER_TOKEN" http://localhost:8080/providers/
 
 O worker usa `APP_REFERENCE_WORKERS` (padrão `2`), `APP_REFERENCE_POLL_INTERVAL` (`500ms`), `APP_REFERENCE_PROCESSING_TIMEOUT` (`10s`) e `APP_REFERENCE_LEASE` (`30s`). Configure o lease acima do timeout de processamento e mantenha capacidade de conexões PostgreSQL para os workers e demais consumidores.
 
+### Códigos de falha da transação
+
+`failureCode` aparece no resultado persistido de uma transação `REJECTED` e nas consultas posteriores. Uma rejeição é terminal: repetir a mesma identidade devolve o resultado anterior, sem nova movimentação. Para uma tentativa corrigida, use uma nova identidade externa e uma nova chave de idempotência. `PENDING_REFERENCE` não possui `failureCode`: aguarde e consulte o `transactionId`. Erros de entrada ou conflito que ocorrem antes da persistência usam o código HTTP e o campo `error` descritos abaixo, sem `failureCode`.
+
+| failureCode | Situação que causa o código | Estado resultante | Definitivo ou temporário | Ação esperada do cliente |
+| --- | --- | --- | --- | --- |
+| `BET_INSUFFICIENT_FUNDS` | Aposta excede o saldo disponível. | `REJECTED` | Definitivo para esta transação. | Não repetir a mesma operação; consultar saldo e, se cabível, criar nova aposta com valor adequado. |
+| `REVERSAL_INSUFFICIENT_FUNDS` | `ROLLBACK` precisa debitar mais que o saldo disponível. | `REJECTED` | Definitivo para esta transação. | Não repetir a mesma identidade; consultar saldo e tratar a reversão com o provedor. |
+| `REFERENCE_NOT_FOUND` | Referência de `WIN`, `REFUND` ou `ROLLBACK` segue ausente ou pendente após o TTL de 24 horas. | `REJECTED` | Definitivo após o prazo. | Consultar o resultado e não repetir esta operação; se a referência chegar depois, decidir uma nova tentativa com nova identidade. |
+| `REFERENCE_NOT_PROCESSED` | Referência encontrada terminou em `REJECTED` ou `FAILED`. | `REJECTED` | Definitivo para esta transação. | Consultar a referência e corrigir o fluxo de origem; não repetir a mesma operação. |
+| `REFERENCE_MISMATCH` | Referência processada diverge em provedor, jogador, carteira, rodada ou moeda. | `REJECTED` | Definitivo para esta transação. | Corrigir os identificadores ou a moeda e criar uma nova operação, se cabível. |
+| `REFERENCE_TYPE_NOT_ALLOWED` | Tipo da referência não é permitido para a operação (`WIN`, `REFUND` ou `ROLLBACK`). | `REJECTED` | Definitivo para esta transação. | Corrigir o tipo ou a referência; não repetir a mesma identidade. |
+| `ALREADY_REVERSED` | Outra reversão direta da mesma referência já foi processada. | `REJECTED` | Definitivo. | Consultar a reversão existente e não enviar outra com o mesmo propósito. |
+| `CURRENCY_MISMATCH` | Código definido para incompatibilidade de moeda; no fluxo atual, divergência entre carteira e operação retorna `422 WALLET_MISMATCH` antes da persistência. | Não emitido atualmente. | Corrigível antes da criação. | Corrigir carteira ou moeda da requisição; não aguardar retry da operação inválida. |
+| `INVALID_OPERATION_AMOUNT` | Valor de `REFUND` ou `ROLLBACK` difere do valor da referência. | `REJECTED` | Definitivo para esta transação. | Corrigir o valor e criar nova operação; não repetir a mesma identidade. |
+| `WALLET_PLAYER_MISMATCH` | Código definido para divergência entre carteira e jogador; o fluxo atual retorna `422 WALLET_MISMATCH` antes da persistência. | Não emitido atualmente. | Corrigível antes da criação. | Corrigir `walletId` ou `playerId` na requisição. |
+| `INVALID_REFERENCE` | Código definido para referência inválida; a validação atual rejeita essa entrada antes da persistência com `400 INVALID_REQUEST`. | Não emitido atualmente. | Corrigível antes da criação. | Corrigir `referenceExternalTransactionId` e a requisição. |
+| `MONEY_OVERFLOW` | Crédito ou débito produziria valor fora do intervalo monetário suportado. | `REJECTED` | Definitivo para esta transação. | Não repetir a mesma operação; ajustar valor ou saldo por um fluxo autorizado antes de uma nova tentativa. |
+| `INFRASTRUCTURE_PERMANENT_FAILURE` | Código aceito por `Transaction.Fail()` para falha de infraestrutura comprovadamente permanente; o fluxo operacional atual não classifica falhas transitórias assim. | `FAILED` apenas na transição de domínio; não emitido em produção. | Definitivo se algum fluxo futuro o persistir. | Consultar a transação e acionar investigação operacional; não repetir automaticamente uma operação `FAILED`. |
+
+Indisponibilidade transitória de PostgreSQL ou SQS não gera `FAILED` nem um desses `failureCode`: HTTP devolve `503 TRANSIENT_FAILURE` e o cliente deve repetir **a mesma** identidade; o consumidor SQS reentrega com backoff. Isso preserva idempotência quando o resultado do commit é incerto.
+
 ### Operações via SQS
 
 O Compose provisiona `wager-transactions.fifo`, `wager-transactions-dlq.fifo` e `wager-events.fifo` no LocalStack. A fila de entrada usa long polling de 20 segundos, visibility de 60 segundos e redrive após cinco recebimentos. Envie mensagens usando `walletId` como `MessageGroupId` e uma identidade de transporte estável como `MessageDeduplicationId`:
 
 ```sh
-docker compose exec -T localstack awslocal sqs send-message \
+docker compose exec -T \
+  -e AWS_ACCESS_KEY_ID=wager-producer-local \
+  -e AWS_SECRET_ACCESS_KEY=wager-producer-local-secret \
+  localstack awslocal --endpoint-url http://sqs-gateway:4566 sqs send-message \
   --queue-url http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/wager-transactions.fifo \
   --message-group-id WALLET_ID \
   --message-deduplication-id msg-123 \
@@ -122,19 +136,9 @@ O `messageId` do envelope identifica a inbox. Reentregas com o mesmo conteúdo s
 
 Falhas transitórias de processamento ajustam a visibility da mensagem para `5, 10, 20, 40, 80` segundos nas cinco primeiras entregas, limitados a 300 segundos se a política de redrive for ampliada. Se o ajuste falhar, a visibility original continua valendo e a inbox/idempotência mantêm a reentrega segura. Envelopes inválidos e conflitos permanentes não recebem esse backoff e seguem a política de redrive da fila; cancelamento no shutdown libera a visibility para retomada. A fila local envia à DLQ após cinco recebimentos.
 
-A fila compartilhada pressupõe um produtor interno confiável; `providerId` no JSON não é uma credencial. Os templates de políticas IAM para roles distintas do aplicativo e do produtor estão em `deploy/aws/`. `go test ./internal/adapters/sqs -run TestIAMPolicyTemplatesUseLeastPrivilegeQueueActions` confere localmente suas ações e recursos exatos. Isso não prova que o broker negue acessos: o LocalStack Community usado pelo Compose aceitou credenciais fictícias, e o [enforcement de IAM é um recurso Pro](https://github.com/localstack/localstack-docs/blob/main/src/content/docs/aws/customization/configuration-options.md). Essa limitação está documentada em `REQUIREMENTS_AUDIT.md`; o enunciado não exige execução em conta AWS real.
+A fila compartilhada pressupõe um produtor interno confiável; `providerId` no JSON não é uma credencial. No Compose principal, somente `sqs-gateway` publica a porta SQS; o LocalStack fica em uma rede interna. O gateway verifica a assinatura SigV4 e aplica os templates de `deploy/aws/` às filas efetivamente usadas: `wager-producer-local` pode enviar à entrada; `wager-app-local` pode consumir a entrada e publicar eventos. Operações por URL são autorizadas pelo `QueueUrl`, enquanto `GetQueueUrl` e `CreateQueue` usam `QueueName`; identificadores extras ou conflitantes são rejeitados antes do proxy. Credenciais desconhecidas, segredo incorreto e ações fora da política recebem `AccessDenied` antes do encaminhamento. A identidade `test/test` serve somente às filas isoladas criadas pelos testes e não tem acesso às três filas da aplicação. `wager-test-app-local` permite que um processo de integração consuma uma fila isolada e acesse a saída/DLQ com a política do app, mas não concede acesso à entrada financeira principal. Esses pares são exemplos locais; defina segredos próprios se expuser a porta fora de uma máquina de desenvolvimento. `TestMainSQSRejectsUnauthorizedFinancialMessage` comprova publicação permitida e ausência de alterações em saldo, ledger, transações e inbox após tentativas negadas, inclusive com `QueueName` e `QueueUrl` conflitantes. `TestIAMPolicyTemplatesUseLeastPrivilegeQueueActions` verifica as ações e recursos dos templates. O gateway local existe porque o [enforcement de IAM no LocalStack exige a edição Pro](https://docs.localstack.cloud/aws/developer-tools/security-testing/iam-policy-enforcement/).
 
-Para exercitar **localmente** a avaliação das políticas, `docker-compose.iam.yml` inicia MiniStack 1.5.15 com `AUTH=true`, cria as mesmas filas e executa os templates IAM com três identidades descartáveis. A verificação exige sucesso para envio do produtor, consumo/delete pelo app e publicação do app; exige `AccessDenied` para sete ações indevidas. Ela usa um projeto Compose separado e não precisa de conta AWS:
-
-```sh
-docker compose -f docker-compose.iam.yml -p wager-iam-local up -d --wait
-docker compose -f docker-compose.iam.yml -p wager-iam-local exec -T ministack sh /verification/verify.sh
-docker compose -f docker-compose.iam.yml -p wager-iam-local down -v
-```
-
-O [MiniStack avalia políticas por access key, mas não valida a assinatura SigV4](https://ministack.org/docs/configuration). Portanto, esse teste demonstra as permissões concedidas/negadas pelo emulador, não a autenticidade criptográfica das credenciais. O Compose principal continua usando LocalStack para os testes completos de FIFO, inbox, DLQ e outbox. Não trate uma credencial com segredo incorreto no MiniStack como prova de autenticação.
-
-Em AWS, configure `APP_SQS_REGION` para a região das filas e deixe `APP_SQS_ENDPOINT`, `APP_SQS_ACCESS_KEY_ID` e `APP_SQS_SECRET_ACCESS_KEY` vazios. O adaptador usa então o endpoint normal do SQS e a [cadeia padrão de credenciais do AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configure-gosdk.html), incluindo a role IAM atribuída ao processo. O Compose continua passando endpoint e credenciais estáticas de teste para o LocalStack. Se fornecer credenciais estáticas, informe acesso e segredo juntos.
+Em AWS, configure `APP_SQS_REGION` para a região das filas e deixe `APP_SQS_ENDPOINT`, `APP_SQS_ACCESS_KEY_ID` e `APP_SQS_SECRET_ACCESS_KEY` vazios. O adaptador usa então o endpoint normal do SQS e a [cadeia padrão de credenciais do AWS SDK for Go v2](https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configure-gosdk.html), incluindo a role IAM atribuída ao processo. Associe os templates às roles correspondentes na AWS. O gateway é exclusivo do Compose local. Se fornecer credenciais estáticas, informe acesso e segredo juntos.
 
 Verificação opcional de acesso efetivo em AWS: após provisionar as três filas FIFO vazias (`wager-transactions.fifo`, `wager-transactions-dlq.fifo`, `wager-events.fifo`) e associar as políticas às roles do app e do produtor, revise queue policies e demais controles da conta. Configure três perfis de credenciais AWS que assumam essas identidades e uma terceira sem acesso às filas, então execute:
 
@@ -259,7 +263,7 @@ go test -tags=integration -run TestTemporaryPostgresAndSQSOutagesRecover -v ./in
 
 Os testes com tag `integration` exigem os serviços correspondentes ativos pelo Compose. Para evitar disputa pelas fixtures de referência e outbox, pare apenas o app durante as suítes PostgreSQL/SQS e o teste de restart de referências (`docker compose stop app`) e religue-o depois (`docker compose start app`). O teste de expiração usa as credenciais administrativas locais (`KEYCLOAK_ADMIN` e `KEYCLOAK_ADMIN_PASSWORD`, com os padrões do Compose), cria um realm temporário e o remove ao terminar. O teste de migrations usa a role administrativa, cria um schema exclusivo e o remove ao terminar; configure `APP_DATABASE_ADMIN_URL` se necessário. O teste dos quatro contratos de evento cria uma carteira e fila FIFO isoladas e compara as mensagens aos snapshots persistidos na outbox. O teste multiprocesso `internal/bootstrap` constrói o binário e inicia três processos adicionais em portas livres; pode rodar com o app do Compose ativo e registra seus PIDs com `-v`. Ele exercita concorrência, lock entre carteiras e replay depois de reiniciar todas as três instâncias. O teste de referências pendentes encerra o processo inicial, inicia outro, resolve uma referência tardia e rejeita outra vencida, verificando outbox e replay. O teste de `SIGTERM` no SQS cria e remove uma fila FIFO isolada, bloqueia o consumo no PostgreSQL e comprova liberação antecipada da visibility e retomada por outro processo. O teste de indisponibilidade usa uma instância própria e proxies de falha locais para PostgreSQL/SQS; não para os containers, verifica readiness/liveness e a publicação da outbox após recuperação. A suíte SQS cria filas FIFO isoladas, valida redrive e três consumidores concorrentes contra LocalStack e PostgreSQL reais e remove as filas ao final. O cenário de divergência da reconciliação usa a role administrativa local para alterar somente a carteira criada pelo teste e restaura seu saldo; em outra configuração, informe `APP_DATABASE_ADMIN_URL`.
 
-Para ensaiar um volume novo sem apagar o banco principal, use outro nome de projeto e portas livres. Um snapshot Git temporário das alterações atuais foi clonado em checkout limpo: o build, readiness, migrations `1,2,3,4`, as três filas, token real do Keycloak, abertura de carteira `201` e acesso de provider negado `403` passaram. `go test -race -count=1 ./...`, `go vet ./...`, a matriz completa de integração com `-race` e a verificação local de políticas no MiniStack passaram nesse checkout. As duas stacks e o volume descartáveis foram removidos.
+Para ensaiar um volume novo sem apagar o banco principal, use outro nome de projeto e portas livres. O procedimento abaixo valida build, readiness, migrations, filas e testes na mesma stack protegida. Pare o app do Compose antes da suíte integrada, que inicia seus próprios processos.
 
 ```sh
 export KEYCLOAK_PORT=18081 POSTGRES_PORT=15432 LOCALSTACK_PORT=14566 APP_HTTP_PORT=18080
@@ -267,7 +271,9 @@ docker compose -p wager-clean-smoke up -d --build --wait
 curl -f http://localhost:18080/health/ready
 docker compose -p wager-clean-smoke exec -T postgres \
   psql -U wager_admin -d wagering -Atc "SELECT string_agg(version::text, ',' ORDER BY version) FROM schema_migrations"
-docker compose -p wager-clean-smoke exec -T localstack awslocal sqs list-queues
+docker compose -p wager-clean-smoke exec -T -e AWS_ACCESS_KEY_ID=wager-producer-local \
+  -e AWS_SECRET_ACCESS_KEY=wager-producer-local-secret localstack \
+  awslocal --endpoint-url http://sqs-gateway:4566 sqs get-queue-url --queue-name wager-transactions.fifo
 go test -race -count=1 ./...
 go vet ./...
 export APP_DATABASE_URL='postgres://wager_app:wager_app_local@localhost:15432/wagering?sslmode=disable'
@@ -275,6 +281,7 @@ export APP_DATABASE_ADMIN_URL='postgres://wager_admin:wager_admin_local@localhos
 export APP_OIDC_ISSUER='http://localhost:18081/realms/wagering'
 export APP_OIDC_JWKS_URL='http://localhost:18081/realms/wagering/protocol/openid-connect/certs'
 export APP_SQS_ENDPOINT='http://localhost:14566'
+export APP_SQS_ACCESS_KEY_ID=wager-app-local APP_SQS_SECRET_ACCESS_KEY=wager-app-local-secret
 docker compose -p wager-clean-smoke stop app
 go test -race -tags=integration -p 1 -count=1 \
   ./internal/adapters/postgres ./internal/adapters/auth ./internal/adapters/sqs ./internal/bootstrap

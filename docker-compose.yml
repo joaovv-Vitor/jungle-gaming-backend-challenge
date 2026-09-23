@@ -44,8 +44,8 @@ services:
     environment:
       SERVICES: sqs
       AWS_DEFAULT_REGION: ${APP_SQS_REGION:-us-east-1}
-    ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+    networks:
+      - sqs-backend
     volumes:
       - ./deploy/localstack/init:/etc/localstack/init/ready.d:ro
     healthcheck:
@@ -54,6 +54,34 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+
+  sqs-gateway:
+    build:
+      context: .
+      dockerfile: deploy/sqs-gateway/Dockerfile
+    environment:
+      SQS_GATEWAY_REGION: ${APP_SQS_REGION:-us-east-1}
+      SQS_GATEWAY_ADMIN_ACCESS_KEY_ID: test
+      SQS_GATEWAY_ADMIN_SECRET_ACCESS_KEY: test
+      SQS_GATEWAY_APP_ACCESS_KEY_ID: ${APP_SQS_ACCESS_KEY_ID:-wager-app-local}
+      SQS_GATEWAY_APP_SECRET_ACCESS_KEY: ${APP_SQS_SECRET_ACCESS_KEY:-wager-app-local-secret}
+      SQS_GATEWAY_PRODUCER_ACCESS_KEY_ID: ${SQS_PRODUCER_ACCESS_KEY_ID:-wager-producer-local}
+      SQS_GATEWAY_PRODUCER_SECRET_ACCESS_KEY: ${SQS_PRODUCER_SECRET_ACCESS_KEY:-wager-producer-local-secret}
+    volumes:
+      - ./deploy/aws:/policies:ro
+    networks:
+      - default
+      - sqs-backend
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    depends_on:
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/sqs-gateway", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
 
   app:
     build:
@@ -66,10 +94,10 @@ services:
       APP_OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8081}/realms/wagering
       APP_OIDC_JWKS_URL: http://keycloak:8080/realms/wagering/protocol/openid-connect/certs
       APP_OIDC_AUDIENCE: wager-api
-      APP_SQS_ENDPOINT: http://localstack:4566
+      APP_SQS_ENDPOINT: http://sqs-gateway:4566
       APP_SQS_REGION: ${APP_SQS_REGION:-us-east-1}
-      APP_SQS_ACCESS_KEY_ID: ${APP_SQS_ACCESS_KEY_ID:-test}
-      APP_SQS_SECRET_ACCESS_KEY: ${APP_SQS_SECRET_ACCESS_KEY:-test}
+      APP_SQS_ACCESS_KEY_ID: ${APP_SQS_ACCESS_KEY_ID:-wager-app-local}
+      APP_SQS_SECRET_ACCESS_KEY: ${APP_SQS_SECRET_ACCESS_KEY:-wager-app-local-secret}
       APP_SQS_INPUT_QUEUE: ${APP_SQS_INPUT_QUEUE:-wager-transactions.fifo}
       APP_SQS_DLQ_QUEUE: ${APP_SQS_DLQ_QUEUE:-wager-transactions-dlq.fifo}
       APP_SQS_OUTPUT_QUEUE: ${APP_SQS_OUTPUT_QUEUE:-wager-events.fifo}
@@ -96,6 +124,8 @@ services:
         condition: service_healthy
       localstack:
         condition: service_healthy
+      sqs-gateway:
+        condition: service_healthy
     ports:
       - "${APP_HTTP_PORT:-8080}:8080"
     init: true
@@ -109,3 +139,7 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  sqs-backend:
+    internal: true

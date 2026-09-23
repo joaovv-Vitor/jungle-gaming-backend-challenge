@@ -65,8 +65,12 @@ func (w *Worker) run(parent context.Context) {
 	defer w.done.Done()
 	for parent.Err() == nil {
 		ctx, cancel := context.WithTimeout(parent, w.cfg.ReferenceProcess)
-		outcome, err := w.service.ProcessOne(ctx)
+		outcome, claim, err := w.service.ProcessOneWithClaim(ctx)
 		cancel()
+		logger := w.logger
+		if claim != nil {
+			logger = logger.With("transactionId", claim.TransactionID, "walletId", claim.WalletID)
+		}
 		if parent.Err() == nil && outcome != application.OutcomeIdle {
 			result := string(outcome)
 			if err != nil {
@@ -75,10 +79,10 @@ func (w *Worker) run(parent context.Context) {
 			w.metrics.RecordReferenceAttempt(result)
 		}
 		if err != nil && parent.Err() == nil {
-			w.logger.Error("reference processing failed", "reason", safeerror.Reason(err))
+			logger.Error("reference processing failed", "reason", safeerror.Reason(err))
 		}
 		if outcome == application.OutcomeCompleted {
-			w.logger.Info("pending reference completed")
+			logger.Info("pending reference completed")
 			continue
 		}
 		timer := time.NewTimer(w.cfg.ReferencePoll)

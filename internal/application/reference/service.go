@@ -64,15 +64,21 @@ func NewService(store Store, wagers *applicationwagering.Service, cfg config.Con
 // ProcessOne claims at most one due item. A claim is committed before the
 // financial transaction takes the wallet lock.
 func (s *Service) ProcessOne(ctx context.Context) (Outcome, error) {
+	outcome, _, err := s.ProcessOneWithClaim(ctx)
+	return outcome, err
+}
+
+// ProcessOneWithClaim exposes only the claimed identifiers for operational logs.
+func (s *Service) ProcessOneWithClaim(ctx context.Context) (Outcome, *Claim, error) {
 	claim, err := s.store.Claim(ctx, s.lease)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if claim == nil {
-		return OutcomeIdle, nil
+		return OutcomeIdle, nil, nil
 	}
 	if claim.TransactionID == "" || claim.WalletID == "" || claim.Token == "" {
-		return "", ErrInvalidClaim
+		return "", claim, ErrInvalidClaim
 	}
 	outcome := OutcomeStale
 	err = s.store.WithinTransaction(ctx, func(session Session) error {
@@ -109,9 +115,9 @@ func (s *Service) ProcessOne(ctx context.Context) (Outcome, error) {
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return "", claim, err
 	}
-	return outcome, nil
+	return outcome, claim, nil
 }
 
 func backoff(attempt int, jitter func(time.Duration) time.Duration) time.Duration {

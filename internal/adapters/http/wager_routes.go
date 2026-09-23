@@ -83,14 +83,18 @@ func (h wagerHandler) submit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		code := wagerErrorMetric(err)
 		h.metrics.RecordWagerError("http", code)
-		h.logger.Warn("wager submission failed", "correlationId", correlationID, "reason", code)
+		h.logger.Warn("wager submission failed", "correlationId", correlationID,
+			"providerId", request.ProviderID, "walletId", request.WalletID,
+			"externalTransactionId", request.ExternalTransactionID, "reason", code)
 		writeWagerError(w, err)
 		return
 	}
 	h.metrics.RecordWager("http", string(result.Transaction.Kind()), string(result.Transaction.Status()),
 		string(result.Transaction.FailureCode()), result.Replay, time.Since(started))
 	h.logger.Info("wager submission handled", "correlationId", correlationID,
-		"transactionId", result.Transaction.ID(), "status", result.Transaction.Status(), "replay", result.Replay)
+		"transactionId", result.Transaction.ID(), "externalTransactionId", request.ExternalTransactionID,
+		"providerId", request.ProviderID, "walletId", request.WalletID,
+		"status", result.Transaction.Status(), "replay", result.Replay)
 	writeWagerResponse(w, result.Transaction, result.Replay)
 }
 
