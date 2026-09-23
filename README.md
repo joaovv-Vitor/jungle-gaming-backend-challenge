@@ -31,7 +31,7 @@ Com Docker:
 docker compose up --build
 ```
 
-O Compose provisiona o realm `wagering`, os clients `internal-service`, `provider-a` e `wager-api`, além das roles `internal` e `provider`. As credenciais abaixo são exclusivamente locais.
+O Compose provisiona o realm `wagering`, os clients `internal-service`, `provider-a`, `provider-b` e `wager-api`, além das roles `internal` e `provider`. As credenciais abaixo são exclusivamente locais. O import do Keycloak ocorre apenas na criação do realm; se o volume foi criado antes da inclusão do provider B, recrie o realm em um ambiente descartável ou adicione o client/role de serviço por administração, sem apagar dados de produção.
 
 Obtenha um token interno pelo fluxo `client_credentials`:
 
@@ -113,6 +113,8 @@ docker compose exec -T localstack awslocal sqs send-message \
 ```
 
 O `messageId` do envelope identifica a inbox. Reentregas com o mesmo conteúdo são confirmadas sem reaplicar o efeito; o mesmo `messageId` com conteúdo diferente permanece na fila para redrive. Um `messageId` novo ainda é deduplicado pelas identidades financeiras compartilhadas com o HTTP.
+
+A fila compartilhada pressupõe um produtor interno confiável; `providerId` no JSON não é uma credencial. Os templates de políticas IAM para roles distintas do aplicativo e do produtor estão em `deploy/aws/`. O LocalStack Community usado pelo Compose não demonstra enforcement: credenciais fictícias conseguiram consultar a fila. Portanto, a negação de acesso ao broker ainda precisa ser provada em AWS SQS ou em ambiente com IAM enforcement. Consulte `REQUIREMENTS_AUDIT.md` para o estado de cada requisito.
 
 Eventos financeiros são gravados na outbox no mesmo commit da operação e publicados depois em `wager-events.fifo`. O envio é *at-least-once*: se houver queda após o envio e antes da confirmação no banco, o mesmo `eventId` pode ser publicado novamente. Consumidores da fila de eventos devem deduplicar por `eventId`; a deduplicação temporária da FIFO não substitui essa regra. `MessageGroupId` usa a carteira, e `MessageDeduplicationId` usa o `eventId`. Publicações de workers distintos podem chegar fora da ordem dos commits; `walletVersion` permite identificar lacunas nos eventos de saldo.
 

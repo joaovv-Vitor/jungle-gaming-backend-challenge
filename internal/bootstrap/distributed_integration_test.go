@@ -413,7 +413,9 @@ func sendJSON(ctx context.Context, port int, method, path, token, key string, pa
 	if err != nil {
 		return apiResponse{}, err
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Correlation-ID", "distributed-integration")
 	if key != "" {

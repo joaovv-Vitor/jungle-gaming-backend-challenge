@@ -60,6 +60,8 @@ O HTTP usará OAuth 2.0/OIDC com Keycloak local e `client_credentials`. O token 
 
 O adaptador usa `go-oidc` 3.21.0 para verificar assinatura RS256, emissor, audiência e validade temporal. Em Docker, o emissor público (`localhost:8081`) permanece o valor validado no token, enquanto uma URL JWKS interna (`keycloak:8080`) é configurada separadamente; isso evita desabilitar a validação de issuer apenas para contornar DNS entre host e containers. O claim `provider_id` identifica o provedor e `realm_access.roles` determina as permissões `provider` e `internal`.
 
+O realm de teste contém dois clients de provedor para demonstrar isolamento com tokens reais. A fila SQS compartilhada é uma fronteira de confiança diferente do HTTP: apenas o serviço interno de ingestão deve enviar, usando uma role IAM separada da role do aplicativo. Os templates de menor privilégio estão em `deploy/aws/`, mas o LocalStack Community local aceitou credenciais fictícias para consultar a fila. Portanto, o ambiente local não comprova negação por IAM; a evidência pendente e as demais lacunas estão em `REQUIREMENTS_AUDIT.md`.
+
 ### Composição e encerramento
 
 Uber Fx compõe configuração, logger, recursos, adaptadores e workers em módulos. Recursos registram `OnStart`/`OnStop` no lifecycle. No encerramento, readiness cai primeiro, novas entradas param e o trabalho em andamento recebe prazo antes do fechamento das dependências.
