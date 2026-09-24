@@ -1,6 +1,6 @@
 # Processamento Distribuído de Apostas em Go
 
-Implementação do desafio descrito em [teste tecnico.md](teste%20tecnico.md). Decisões e limites estão em [ARCHITECTURE.md](ARCHITECTURE.md).
+As decisões e limitações da solução estão em [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Visão geral
 
