@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/ledger"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/ledger"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
 )
 
 var eventTime = time.Date(2026, 9, 22, 12, 0, 0, 123000000, time.FixedZone("BRT", -3*60*60))

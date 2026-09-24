@@ -4,8 +4,8 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
-	domain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
+	domain "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
 )
 
 func TestCanonicalPayloadVector(t *testing.T) {

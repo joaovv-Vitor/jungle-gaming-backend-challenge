@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	applicationwagering "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
-	domain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
+	applicationwagering "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/wagering"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
+	domain "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/event"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/event"
 )
 
 type OutboxRepository struct{}

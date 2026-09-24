@@ -3,7 +3,7 @@ package sqsadapter
 import (
 	"go.uber.org/fx"
 
-	applicationoutbox "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/outbox"
+	applicationoutbox "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/outbox"
 )
 
 var Module = fx.Module(

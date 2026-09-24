@@ -3,12 +3,12 @@ package postgres
 import (
 	"go.uber.org/fx"
 
-	applicationingestion "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/ingestion"
-	applicationoutbox "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/outbox"
-	applicationreconciliation "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reconciliation"
-	applicationreference "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reference"
-	applicationwagering "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
-	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
+	applicationingestion "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/ingestion"
+	applicationoutbox "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/outbox"
+	applicationreconciliation "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/reconciliation"
+	applicationreference "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/reference"
+	applicationwagering "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/wagering"
+	applicationwallet "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/wallet"
 )
 
 var Module = fx.Module(

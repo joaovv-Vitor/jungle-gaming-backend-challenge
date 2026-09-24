@@ -19,7 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 
-	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
+	platformid "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/id"
 )
 
 // This test requires real IAM enforcement and three different AWS principals.

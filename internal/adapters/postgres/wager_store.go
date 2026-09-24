@@ -7,11 +7,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/event"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/ledger"
-	domain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wallet"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/wagering"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/event"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/ledger"
+	domain "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wallet"
 )
 
 type WagerStore struct {

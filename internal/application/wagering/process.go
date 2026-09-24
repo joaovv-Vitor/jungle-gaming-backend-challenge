@@ -5,11 +5,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/event"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/ledger"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
-	domain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wallet"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/event"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/ledger"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
+	domain "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wallet"
 )
 
 func (s *Service) process(

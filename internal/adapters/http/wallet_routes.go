@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/auth"
-	applicationreconciliation "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reconciliation"
-	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
-	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/adapters/auth"
+	applicationreconciliation "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/reconciliation"
+	applicationwallet "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/wallet"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
+	platformid "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/id"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/metrics"
 )
 
 const maxJSONBodyBytes = 1 << 20

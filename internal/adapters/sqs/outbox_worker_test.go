@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/outbox"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/outbox"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/config"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/metrics"
 )
 
 type failingOutboxStore struct{ err error }

@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	applicationoutbox "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/outbox"
-	applicationwallet "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wallet"
+	applicationoutbox "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/outbox"
+	applicationwallet "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/wallet"
 )
 
 func TestOutboxPublishersClaimDistinctEventsAndRecoverAbandonedLease(t *testing.T) {

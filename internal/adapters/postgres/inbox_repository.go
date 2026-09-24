@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/ingestion"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/ingestion"
 )
 
 type InboxRepository struct{}

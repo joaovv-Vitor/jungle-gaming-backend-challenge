@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/adapters/auth"
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/wagering"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
-	domain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
-	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/adapters/auth"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/wagering"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
+	domain "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
+	platformid "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/id"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/metrics"
 )
 
 func registerWagerRoutes(mux *http.ServeMux, authentication *auth.Middleware, wagers *application.Service, instrumentation *metrics.Metrics, logger *slog.Logger) {

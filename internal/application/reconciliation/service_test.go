@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/metrics"
 )
 
 const testWalletID = "10000000-0000-4000-8000-000000000001"

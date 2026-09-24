@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/config"
 )
 
 type serviceStore struct {

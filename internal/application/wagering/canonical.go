@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	domain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
+	domain "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
 )
 
 func canonicalPayload(input SubmitInput) ([]byte, domain.PayloadHash, error) {

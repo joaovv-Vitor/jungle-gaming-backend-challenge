@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/config"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/health"
 )
 
 func NewPool(lifecycle fx.Lifecycle, cfg config.Config, status *health.Status, logger *slog.Logger) (*pgxpool.Pool, error) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
 )
 
 var entryTime = time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)

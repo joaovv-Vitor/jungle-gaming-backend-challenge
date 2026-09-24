@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reference"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/reference"
 )
 
 type ReferenceStore struct {

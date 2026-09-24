@@ -8,11 +8,11 @@ import (
 
 	"go.uber.org/fx"
 
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/outbox"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/health"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/metrics"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/safeerror"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/outbox"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/config"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/health"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/metrics"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/safeerror"
 )
 
 type OutboxWorker struct {

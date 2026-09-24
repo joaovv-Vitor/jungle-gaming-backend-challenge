@@ -9,7 +9,7 @@ import (
 	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/config"
 )
 
 func TestBrokerUsesAWSCredentialChainWithoutCustomEndpoint(t *testing.T) {

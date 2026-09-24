@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/event"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/ledger"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/money"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wagering"
-	walletdomain "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/domain/wallet"
-	platformid "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/id"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/event"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/ledger"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/money"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wagering"
+	walletdomain "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/domain/wallet"
+	platformid "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/id"
 )
 
 var (

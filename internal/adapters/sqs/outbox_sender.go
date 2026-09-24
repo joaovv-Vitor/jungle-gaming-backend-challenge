@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/outbox"
-	"github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/platform/config"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/outbox"
+	"github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/platform/config"
 )
 
 type OutboxSender struct {

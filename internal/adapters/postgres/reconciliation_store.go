@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	application "github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go/internal/application/reconciliation"
+	application "github.com/joaovv-Vitor/jungle-gaming-backend-challenge/internal/application/reconciliation"
 )
 
 type ReconciliationStore struct{ unit *UnitOfWork }

@@ -1,4 +1,4 @@
-module github.com/joaovv-Vitor/Desafio-Backend-Processamento-Distribu-do-de-Apostas-em-Go
+module github.com/joaovv-Vitor/jungle-gaming-backend-challenge
 
 go 1.27
 
